@@ -1,6 +1,78 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
+#
+# bin/worktree-init <slug> [branch] [base-ref]
+#
+# Create a worktree that can actually decrypt. A plain `git worktree add` FAILS on any
+# git-crypt repo — and fails misleadingly, because git rolls the whole worktree back and
+# leaves you a missing directory rather than a broken one:
+#
+#   git-crypt: Error: Unable to open key file - have you unlocked this repository yet?
+#   fatal: journal/.gitkeep: smudge filter git-crypt failed
+#
+# Why: git-crypt keeps its key at $GIT_DIR/git-crypt/keys/. A worktree gets its OWN
+# $GIT_DIR and does not inherit it. `git-crypt unlock` cannot repair it afterwards either
+# — it refuses to run unless the tree is already clean, and --no-checkout reads as "every
+# file deleted".
+#
+# The key handling lives here, in reviewed code, rather than being improvised per run.
+# Pair it with a narrow `Bash(bin/worktree-init*)` permission rather than a broad grant.
+
 set -euo pipefail
-# TODO: not yet implemented. See MAKER_KATA_AND_SKILLS.md for the spec.
-echo "bin/worktree-init is a skeleton stub — not implemented yet." >&2
-exit 64
+
+SLUG="${1:?usage: bin/worktree-init <slug> [branch] [base-ref]}"
+BRANCH="${2:-$SLUG}"
+BASE="${3:-origin/main}"
+
+ROOT=$(git rev-parse --show-toplevel)
+REPO=$(basename "$(git remote get-url origin)" .git)
+WT="$(dirname "$ROOT")/${REPO}-worktrees/$SLUG"
+KEYDIR="$HOME/.config/git-crypt"
+
+[ -e "$WT" ] && { echo "worktree-init: $WT already exists" >&2; exit 1; }
+
+# Every named key in .gitattributes needs its own file installed, not just `default`.
+mapfile -t KEYNAMES < <(
+  { echo default
+    sed -n 's|.*filter=git-crypt-\([A-Za-z0-9_-]*\).*|\1|p' "$ROOT/.gitattributes"
+  } | sort -u
+)
+
+for k in "${KEYNAMES[@]}"; do
+  src="$KEYDIR/$REPO.key"; [ "$k" = default ] || src="$KEYDIR/$REPO.$k.key"
+  [ -f "$src" ] || { echo "worktree-init: missing key $src" >&2; exit 1; }
+done
+
+echo "worktree-init: $WT  (branch $BRANCH from $BASE)"
+mkdir -p "$(dirname "$WT")"
+
+# --no-checkout FIRST. Checking out before the keys are in place is the failure above.
+git worktree add --no-checkout "$WT" -b "$BRANCH" "$BASE" >/dev/null
+
+GITDIR=$(git -C "$WT" rev-parse --absolute-git-dir)
+install -d -m 700 "$GITDIR/git-crypt/keys"
+for k in "${KEYNAMES[@]}"; do
+  src="$KEYDIR/$REPO.key"; [ "$k" = default ] || src="$KEYDIR/$REPO.$k.key"
+  install -m 600 "$src" "$GITDIR/git-crypt/keys/$k"
+  echo "  key: $k"
+done
+
+git -C "$WT" checkout >/dev/null
+
+# Always verify. A worktree that silently passed ciphertext through looks fine and fails
+# confusingly months later.
+# `|| true` is load-bearing under `set -e`: the inner grep returns 1 when it finds
+# nothing still encrypted, which is the SUCCESS case. Without it the script dies on its
+# own happy path, after doing all the work.
+still=$(git -C "$WT" ls-files -z | xargs -0 git -C "$WT" check-attr filter -- \
+        | grep ': filter: git-crypt' | sed 's|: filter: .*||' \
+        | while IFS= read -r f; do
+            head -c 9 "$WT/$f" 2>/dev/null | grep -qa GITCRYPT && echo "$f"
+          done) || true
+if [ -n "$still" ]; then
+  echo "worktree-init: FAILED — still encrypted:" >&2
+  printf '  %s\n' $still >&2
+  exit 1
+fi
+echo "  decryption verified."
+echo "  cd $WT"
