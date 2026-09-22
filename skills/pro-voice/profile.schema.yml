@@ -1,0 +1,36 @@
+# ~/.claude/voice/<name>.yml — the shape of a voice profile.
+# Copy this, fill it from your own writing (or run /pro-voice --learn), and keep it OUT
+# of any repo. A voice profile is not a template; it is a description of one person.
+
+name: ""                  # whose voice
+updated: ""               # YYYY-MM-DD
+
+# Rules are prose you would actually say to someone editing your draft.
+# Each MUST carry at least one exemplar. A rule with no exemplar steers nothing.
+rules:
+  - id: ""                # short slug, referenced by audit flags
+    rule: ""              # one sentence, imperative
+    why: ""               # optional — the reason survives longer than the rule
+    exemplars:
+      - good: ""
+        source: ""        # file or artifact this was actually written in
+      - bad: ""
+        source: ""        # "" if invented as a contrast rather than found
+
+# Words that tell a reader their confusion is a personal failing.
+banned:
+  - word: ""
+    unless: "quoting source material"
+
+# The two axes. Values are free text describing how the voice shifts in that cell.
+axes:
+  perspective:
+    self: ""
+    other: ""
+  reader_distance:
+    peer: ""
+    newcomer: ""
+
+# Formatting habits that are voice, not style — things you would notice if changed.
+habits:
+  - ""

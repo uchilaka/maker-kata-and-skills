@@ -1,0 +1,51 @@
+# Illustrative only — someone else's voice, so you can see the shape filled in.
+name: example
+updated: "2026-09-22"
+
+rules:
+  - id: curious-disagreement
+    rule: Frame disagreement about someone else's work as a genuine question.
+    why: >
+      It leaves room for the answer to be "because of a constraint you don't know about",
+      which is frequently the truth. Being right rudely still spends trust.
+    exemplars:
+      - good: "Curious about the indexing strategy here — did you consider an index on actor_id?"
+        source: skills/pr-review/SKILL.md
+      - bad: "This is missing an index."
+        source: ""
+
+  - id: show-the-climb
+    rule: Make your own not-knowing visible before asking the reader to admit theirs.
+    exemplars:
+      - good: "Took me a few reads to land on this — turns out the trick is…"
+        source: skills/simplify-this/SKILL.md
+      - bad: "It's actually quite simple…"
+        source: skills/simplify-this/SKILL.md
+
+  - id: evidence-bearing
+    rule: A finding names a concrete failure, not a worry.
+    exemplars:
+      - good: "With an empty collection this raises at line 42."
+        source: CLAUDE.md
+      - bad: "This could be a problem."
+        source: CLAUDE.md
+
+banned:
+  - { word: obviously,  unless: quoting source material }
+  - { word: simply,     unless: quoting source material }
+  - { word: just,       unless: "quoting, or 'just' meaning fair" }
+  - { word: "of course", unless: quoting source material }
+  - { word: trivially,  unless: quoting source material }
+
+axes:
+  perspective:
+    self: Direct and unhedged. Name the fix, skip the softening.
+    other: Blameless and curious. Observation or question, assume good intent.
+  reader_distance:
+    peer: Jargon is fine. Terse. Skip the mental model.
+    newcomer: Define on first use. Lead with why. Analogy before the term.
+
+habits:
+  - Diagram at three or more steps, never a numbered list in prose.
+  - Never hard-wrap prose in markdown source; it lands choppy on GitHub.
+  - Praise what genuinely worked; a review that only finds fault teaches people to dread review.
