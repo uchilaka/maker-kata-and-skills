@@ -1,6 +1,182 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-set -euo pipefail
-# TODO: not yet implemented. See MAKER_KATA_AND_SKILLS.md for the spec.
-echo "bin/kata is a skeleton stub — not implemented yet." >&2
-exit 64
+#
+# bin/kata — run today's practice.
+#
+#   bin/kata --prepare    render today's entry and notify. Safe to run from launchd.
+#   bin/kata              prepare if needed, open $EDITOR, then commit and push.
+#   bin/kata --review     compile REVIEW.md from the log history.
+#   bin/kata --dry-run    render to stdout, touch nothing. Combines with the above.
+#
+# Refuses to do anything when the repo is locked: tier-1 files in the working tree ARE
+# the ciphertext then, so writing over them destroys real content.
+
+set -uo pipefail
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not in a git repository" >&2; exit 1; }
+cd "$ROOT"
+
+MODE=run; DRY=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --prepare) MODE=prepare ;;
+    --review)  MODE=review ;;
+    --dry-run) DRY=1 ;;
+    -h|--help) sed -n '3,12p' "$0" | sed 's|^# \?||'; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+die() { printf 'kata: %s\n' "$1" >&2; exit 1; }
+note() { command -v osascript >/dev/null 2>&1 && \
+  osascript -e "display notification \"$2\" with title \"$1\"" >/dev/null 2>&1 || true; }
+
+# ------------------------------------------------------------------ guards ---
+# The lock check comes first and has no override. See bin/doctor for the rationale.
+locked=$(git ls-files -z 2>/dev/null | xargs -0 git check-attr filter -- 2>/dev/null \
+         | grep ': filter: git-crypt' | sed 's|: filter: .*||' \
+         | while IFS= read -r f; do
+             [ -f "$f" ] && head -c 9 "$f" 2>/dev/null | grep -qa GITCRYPT && echo "$f"
+           done)
+if [ -n "$locked" ]; then
+  note "kata — locked" "Unlock before writing."
+  die "repo is LOCKED — tier-1 files are ciphertext. Do not edit.
+     git-crypt unlock ~/.config/git-crypt/$(basename "$(git remote get-url origin)" .git).key"
+fi
+
+PROFILE="${KATA_PROFILE:-}"
+[ "$MODE" = review ] || [ -n "$PROFILE" ] || die "KATA_PROFILE unset (personal|work)"
+
+# ------------------------------------------------------------- today's shape --
+TODAY=$(date +%Y-%m-%d)
+DOW=$(date +%a | tr '[:upper:]' '[:lower:]')
+ENTRY="log/$(date +%Y/%m/%d).md"
+
+case "$DOW" in
+  mon) SHAPE=study; TRACK="systems & architecture" ;;
+  tue) SHAPE=kata ;;
+  wed) SHAPE=study; TRACK="race, power and people in tech" ;;
+  thu) SHAPE=kata ;;
+  fri) SHAPE=re-rep ;;
+  *)   SHAPE=rest ;;
+esac
+
+# Pick the kata with the fewest recorded reps; alphabetical tie-break. Least-run first
+# is what stops the library collapsing to one favourite form.
+pick_kata() {
+  local best="" bestn=999999 f name n
+  for f in practice/katas/*.md; do
+    [ -f "$f" ] || continue
+    # A kata is a file with a `## Form` section. That is what the renderer reads, so it
+    # is also what defines one — CANDIDATES.md and any README are excluded structurally
+    # rather than by filename convention.
+    grep -q '^## Form' "$f" || continue
+    name=$(basename "$f" .md)
+    n=$(grep -rhoE "^kata: +$name\b" log/ 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$n" -lt "$bestn" ]; then bestn=$n; best=$name; fi
+  done
+  [ -n "$best" ] && printf '%s %s' "$best" "$((bestn + 1))"
+}
+
+last_rep() {   # most recent recorded rep of $1, as "date — summary"
+  grep -rl "^kata: \+$1\b" log/ 2>/dev/null | sort | tail -1 | while IFS= read -r f; do
+    printf '%s' "$(basename "$(dirname "$(dirname "$f")")")-$(basename "$(dirname "$f")")-$(basename "$f" .md)"
+  done
+}
+
+# log/2026/09/22.md -> 2026-09-22. basename alone yields "22", which is useless in a
+# review that spans months.
+entry_date() { printf '%s' "$(printf '%s' "${1#log/}" | sed 's|\.md$||; s|/|-|g')"; }
+
+render() {
+  printf '# %s · %s · %s\n\n' "$TODAY" "$DOW" "$SHAPE"
+  case "$SHAPE" in
+    kata)
+      read -r k n <<<"$(pick_kata)"
+      if [ -n "${k:-}" ]; then
+        prior=$(last_rep "$k")
+        printf 'kata:    %-28s rep %s\n' "$k" "${n:-1}"
+        printf 'subject: \n'
+        printf 'prior:   %s\n' "${prior:-—}"
+        printf 'this:    \n\n'
+        printf -- '--- form (from practice/katas/%s.md) ---\n' "$k"
+        sed -n '/^## Form/,/^## /p' "practice/katas/$k.md" 2>/dev/null | sed '$d'
+        printf '\n'
+      else
+        printf '_No katas defined yet — see practice/katas/._\n\n'
+      fi ;;
+    re-rep)
+      printf 'Re-run one kata from an earlier week and diff it against the record.\n'
+      printf 'This is the block that shows you improving rather than accumulating.\n\n'
+      printf 'kata:    \nsubject: \nprior:   \nthis:    \n\n' ;;
+    study)
+      printf 'track:   %s\n\n' "${TRACK:-—}" ;;
+    rest)
+      printf '_Weekend. Nothing scheduled._\n\n' ;;
+  esac
+  printf '## Scan\n\n- \n\n'
+  printf '## Depth\n\n'
+  printf '## Artifact\n\n'
+  printf '## Signal\n\n'
+}
+
+# ---------------------------------------------------------------- --review ---
+if [ "$MODE" = review ]; then
+  out=$(
+    printf '# Practice review — generated %s\n\n' "$TODAY"
+    n_days=$(find log -name '*.md' -not -name LICENSE 2>/dev/null | wc -l | tr -d ' ')
+    printf 'Entries: %s\n\n' "$n_days"
+    printf '## Artifacts\n\n'
+    for f in $(find log -name '*.md' 2>/dev/null | sort); do
+      a=$(sed -n '/^## Artifact/,/^## /p' "$f" | sed '1d;$d' | grep -v '^\s*$' | head -3)
+      [ -n "$a" ] && printf -- '- **%s** — %s\n' "$(entry_date "$f")" "$(echo "$a" | tr '\n' ' ')"
+    done
+    printf '\n## Signals\n\n'
+    for f in $(find log -name '*.md' 2>/dev/null | sort); do
+      s=$(sed -n '/^## Signal/,$p' "$f" | sed '1d' | grep -v '^\s*$' | grep -v '^—$' | head -3)
+      [ -n "$s" ] && printf -- '- **%s** — %s\n' "$(entry_date "$f")" "$(echo "$s" | tr '\n' ' ')"
+    done
+    printf '\n## Kata reps\n\n'
+    grep -rhoE '^kata: +[a-z0-9-]+' log/ 2>/dev/null | awk '{print $2}' | sort | uniq -c \
+      | sort -rn | while read -r c k; do printf -- '- %-32s %s rep(s)\n' "$k" "$c"; done
+  )
+  if [ "$DRY" -eq 1 ]; then printf '%s\n' "$out"; else printf '%s\n' "$out" > REVIEW.md; echo "wrote REVIEW.md"; fi
+  exit 0
+fi
+
+# ---------------------------------------------------------------- prepare ----
+if [ "$DRY" -eq 1 ]; then render; exit 0; fi
+
+git pull --rebase --quiet 2>/dev/null || echo "kata: pull failed, working offline" >&2
+
+if [ -e "$ENTRY" ]; then
+  echo "kata: $ENTRY already exists"
+else
+  mkdir -p "$(dirname "$ENTRY")"
+  render > "$ENTRY"
+  echo "kata: rendered $ENTRY"
+fi
+
+if [ "$MODE" = prepare ]; then
+  note "kata — ready" "$SHAPE · $(basename "$ENTRY")"
+  exit 0
+fi
+
+# -------------------------------------------------------------------- run ----
+[ -n "${EDITOR:-}" ] || die "\$EDITOR unset"
+printf 'scan 10 · depth 20 · artifact 10 · signal 5   (output blocks last, on purpose)\n'
+"$EDITOR" "$ENTRY"
+
+if git diff --quiet -- "$ENTRY" && git ls-files --error-unmatch "$ENTRY" >/dev/null 2>&1; then
+  echo "kata: no changes, nothing to commit"; exit 0
+fi
+
+git add "$ENTRY"
+# Uniform, boring message on purpose: commit messages are NOT encrypted.
+git commit -q -m "log: $TODAY"
+echo "kata: committed log: $TODAY"
+
+case "$PROFILE" in
+  personal|work) git push --quiet && echo "kata: pushed" || echo "kata: push failed — commit is safe locally" >&2 ;;
+esac
