@@ -167,6 +167,22 @@ else
   ok "sources/private/ is tracked (tier 1, not swallowed)"
 fi
 
+# ----------------------------------------------------------------- hooks -----
+head2 "Guards"
+
+hp=$(git config --get core.hooksPath 2>/dev/null)
+if [ "$hp" = ".githooks" ] && [ -x ".githooks/pre-commit" ]; then
+  ok "pre-commit hook wired (core.hooksPath=.githooks)"
+else
+  fail "pre-commit hook not wired" "git config core.hooksPath .githooks — it blocks plaintext tier-1 commits"
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  ok "gitleaks present"
+else
+  warn "gitleaks not installed" "brew install gitleaks — CI cannot do this job, it has no key"
+fi
+
 # ---------------------------------------------------------------- skills -----
 head2 "Skills"
 
