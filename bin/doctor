@@ -1,6 +1,205 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-set -euo pipefail
-# TODO: not yet implemented. See MAKER_KATA_AND_SKILLS.md for the spec.
-echo "bin/doctor is a skeleton stub — not implemented yet." >&2
-exit 64
+#
+# bin/doctor — verify this checkout can actually be worked in.
+#
+# Bias: every check here exists because its failure mode is SILENT. A locked repo looks
+# like binary garbage, an unrooted ignore pattern looks like a saved file that never
+# syncs, and a worktree missing the git-crypt key looks fine until the day you need it.
+# Loud failures do not need a doctor.
+#
+# Exit 0 = safe to work. Exit 1 = at least one FAIL. WARNs never fail the run.
+
+set -uo pipefail
+
+if [ -t 1 ]; then
+  R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[1m'; N=$'\033[0m'
+else
+  R=; G=; Y=; B=; N=
+fi
+
+fails=0
+warns=0
+
+ok()   { printf '  %sPASS%s  %s\n' "$G" "$N" "$1"; }
+fail() { printf '  %sFAIL%s  %s\n' "$R" "$N" "$1"; [ $# -gt 1 ] && printf '        %s\n' "$2"; fails=$((fails + 1)); }
+warn() { printf '  %sWARN%s  %s\n' "$Y" "$N" "$1"; [ $# -gt 1 ] && printf '        %s\n' "$2"; warns=$((warns + 1)); }
+head2() { printf '\n%s%s%s\n' "$B" "$1" "$N"; }
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
+  printf '%sFAIL%s  not inside a git repository\n' "$R" "$N"; exit 1
+}
+cd "$ROOT"
+REPO=$(basename "$ROOT")
+
+printf '%sbin/doctor%s  %s\n' "$B" "$N" "$ROOT"
+
+# ---------------------------------------------------------------- tooling ----
+head2 "Tooling"
+
+if command -v git-crypt >/dev/null 2>&1; then
+  ok "git-crypt present ($(git-crypt --version 2>&1 | head -1))"
+else
+  fail "git-crypt not on PATH" "brew install git-crypt — tier-1 files stay ciphertext without it"
+fi
+
+if [ -n "${EDITOR:-}" ] && command -v "${EDITOR%% *}" >/dev/null 2>&1; then
+  ok "\$EDITOR is set and resolvable ($EDITOR)"
+else
+  fail "\$EDITOR unset or not on PATH" "bin/kata opens your entry in it; set it in your shell rc"
+fi
+
+# ---------------------------------------------------------------- profile ----
+head2 "Profile"
+
+if [ -z "${KATA_PROFILE:-}" ]; then
+  fail "KATA_PROFILE unset" "set personal|work in your shell rc — bin/kata must not guess this"
+elif [ -f "config/profiles/${KATA_PROFILE}.yml" ]; then
+  ok "KATA_PROFILE=$KATA_PROFILE (config/profiles/${KATA_PROFILE}.yml)"
+else
+  fail "KATA_PROFILE=$KATA_PROFILE has no config" "expected config/profiles/${KATA_PROFILE}.yml"
+fi
+
+if git remote get-url origin >/dev/null 2>&1; then
+  ok "origin: $(git remote get-url origin)"
+else
+  fail "no origin remote" "tier-1 content is only backed up by virtue of being pushed"
+fi
+
+# ------------------------------------------------------------------- keys ----
+head2 "Keys"
+
+keydir="$HOME/.config/git-crypt"
+found_key=0
+for k in "$keydir/$REPO".key "$keydir/$REPO".*.key; do
+  [ -f "$k" ] || continue
+  found_key=1
+  mode=$(stat -f '%Lp' "$k" 2>/dev/null || stat -c '%a' "$k" 2>/dev/null)
+  if [ "$mode" = "600" ]; then
+    ok "$(basename "$k") (mode $mode)"
+  else
+    fail "$(basename "$k") is mode $mode, want 600" "chmod 600 $k"
+  fi
+done
+[ "$found_key" -eq 1 ] || warn "no key files in $keydir" \
+  "worktrees need an absolute key path; git-crypt export-key $keydir/$REPO.key"
+
+# --------------------------------------------------------------- unlocked ----
+# The check that matters most. When a repo is locked, tier-1 files in the working tree
+# ARE the ciphertext — writing over them and committing destroys real content.
+head2 "Encryption state"
+
+tier1=$(git ls-files -z | xargs -0 git check-attr filter -- 2>/dev/null \
+        | grep ': filter: git-crypt' | sed 's|: filter: .*||')
+
+if [ -z "$tier1" ]; then
+  warn "no tier-1 files tracked yet" "nothing to verify; re-run once log/ or journal/ has content"
+else
+  locked=""
+  while IFS= read -r f; do
+    [ -f "$f" ] || continue
+    if head -c 9 "$f" 2>/dev/null | grep -qa GITCRYPT; then
+      locked="$locked $f"
+    fi
+  done <<< "$tier1"
+
+  if [ -n "$locked" ]; then
+    fail "repo is LOCKED — tier-1 files are ciphertext in the working tree" \
+         "do NOT edit or commit. git-crypt unlock $keydir/$REPO.key"
+    for f in $locked; do printf '        ciphertext: %s\n' "$f"; done
+  else
+    ok "unlocked — $(printf '%s\n' "$tier1" | wc -l | tr -d ' ') tier-1 file(s) readable"
+  fi
+fi
+
+# --------------------------------------------------------- filter routing ----
+# git-crypt status says "encrypted" without naming WHICH key. check-attr names it, which
+# is the only way to catch a year rolling onto the wrong key.
+head2 "Filter routing"
+
+route() { git check-attr filter -- "$1" 2>/dev/null | sed 's|.*: filter: ||'; }
+
+year=$(date +%Y)
+probe="log/$year/01/01.md"
+want="git-crypt-log-$year"
+got=$(route "$probe")
+if [ "$got" = "$want" ]; then
+  ok "log/$year/** -> $want"
+elif [ "$got" = "git-crypt" ]; then
+  warn "log/$year/** falls back to the default key" \
+       "add: log/$year/** filter=$want diff=$want  (then git-crypt init -k log-$year)"
+else
+  fail "log/$year/** routes to '$got', expected $want"
+fi
+
+got=$(route "log/LICENSE")
+if [ "$got" = "unspecified" ]; then
+  ok "log/LICENSE -> unspecified (stays readable)"
+else
+  fail "log/LICENSE routes to '$got'" "a licence nobody can read is not a licence"
+fi
+
+# ----------------------------------------------------------- ignore tiers ----
+# The bug found 2026-09-22: `private/` unrooted matches ANY directory named private at
+# any depth, silently swallowing tier-1 sources/private/. Notes look saved, never sync.
+head2 "Tier boundaries"
+
+# Probe a path UNDER each directory, never the directory itself: `/private/` is a
+# directory-only pattern, and check-ignore cannot match one against a path that does not
+# exist on disk yet. Probing the bare name reports a false FAIL on every fresh clone —
+# and a diagnostic that cries wolf is one you stop reading.
+if git check-ignore -q private/probe 2>/dev/null; then
+  ok "/private/ is ignored (tier 2)"
+else
+  fail "/private/ is NOT ignored" "tier-2 content would be committed to a public repo"
+fi
+
+if git check-ignore -q sources/private/probe 2>/dev/null; then
+  fail "sources/private/ is ignored but should be tier 1" \
+       "the ignore pattern is unrooted — use /private/ not private/"
+else
+  ok "sources/private/ is tracked (tier 1, not swallowed)"
+fi
+
+# ---------------------------------------------------------------- skills -----
+head2 "Skills"
+
+mounted=0; broken=0
+for d in skills/*/; do
+  [ -d "$d" ] || continue
+  name=$(basename "$d")
+  link="$HOME/.claude/skills/$name"
+  if [ -L "$link" ]; then
+    if [ -e "$link" ]; then mounted=$((mounted + 1)); else
+      fail "~/.claude/skills/$name is a broken symlink" "re-run bin/mount-skills --apply"
+      broken=$((broken + 1))
+    fi
+  elif [ -d "$link" ]; then
+    warn "~/.claude/skills/$name exists as a real directory" \
+         "mount-skills will refuse to clobber it; resolve by hand"
+  fi
+done
+if [ "$mounted" -gt 0 ]; then
+  ok "$mounted skill(s) mounted into ~/.claude/skills"
+elif [ "$broken" -eq 0 ]; then
+  warn "no skills mounted" "bin/mount-skills --apply (then restart Claude — skills load at session start)"
+fi
+
+# --------------------------------------------------------------- schedule ----
+head2 "Schedule"
+
+label="tech.larcity.maker-kata"
+if launchctl list 2>/dev/null | grep -q "$label"; then
+  ok "launchd agent loaded ($label)"
+else
+  warn "launchd agent not loaded" "bin/install — the practice still runs by hand without it"
+fi
+
+# ---------------------------------------------------------------- summary ----
+printf '\n'
+if [ "$fails" -gt 0 ]; then
+  printf '%s%d failed%s, %d warning(s)\n' "$R" "$fails" "$N" "$warns"
+  exit 1
+fi
+printf '%sall checks passed%s, %d warning(s)\n' "$G" "$N" "$warns"
+exit 0
