@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+title: maker-kata-and-skills
+message: >-
+  If you adopt or adapt this practice, please cite it.
+type: software
+authors:
+  - family-names: Chilaka
+    given-names: Uchenna
+repository-code: https://github.com/uchilaka/maker-kata-and-skills
+abstract: >-
+  A daily kata practice that rehearses a craft rather than reading about one, with the
+  Claude Code skills that run it. Published so it can be forked; the practice record
+  itself stays encrypted and reserved.
+keywords:
+  - deliberate-practice
+  - kata
+  - claude-code
+  - developer-tooling
+license: Apache-2.0

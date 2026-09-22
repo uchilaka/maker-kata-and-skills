@@ -1,0 +1,13 @@
+maker-kata-and-skills
+Copyright 2026 Uchenna Chilaka
+
+This product includes software developed by Uchenna Chilaka.
+
+Licensed under the Apache License, Version 2.0 (see LICENSE), EXCEPT:
+
+  - Written content (practice/, sources/, README.md, INSTALL.md and the prose of
+    skills/*/SKILL.md) is licensed under CC BY 4.0 — see LICENSE-CONTENT.
+  - log/ and journal/ are ALL RIGHTS RESERVED and are not covered by either grant.
+    See log/LICENSE.
+
+See LICENSING.md for why the split exists.
