@@ -1,0 +1,13 @@
+# Tier 2 — never committed, on any machine. The drawer outside the safe.
+/private/
+
+# Machine-local config overrides
+config/*.local.yml
+.env
+.env.*
+
+# macOS / editor noise
+.DS_Store
+*.swp
+.idea/
+.vscode/

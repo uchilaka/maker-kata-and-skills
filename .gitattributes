@@ -1,0 +1,22 @@
+# Tier 1 — encrypted at rest in this PUBLIC repo.
+# See ~/project-plans/maker-kata-and-skills/MAKER_KATA_AND_SKILLS.md for the tier model.
+#
+# ORDERING: git applies the LAST matching pattern, so the year-scoped key rules come
+# after the catch-all, and the never-encrypt exceptions come after everything.
+#
+# This file must exist BEFORE the first file it protects is ever committed. git-crypt
+# encrypts on commit, never retroactively — a tier-1 file committed before its pattern
+# existed stays plaintext in this public history forever.
+
+journal/**           filter=git-crypt diff=git-crypt
+sources/private/**   filter=git-crypt diff=git-crypt
+REVIEW.md            filter=git-crypt diff=git-crypt
+
+# Logs, keyed per year so a key grant is bounded to one year of source material.
+log/**               filter=git-crypt diff=git-crypt
+log/2026/**          filter=git-crypt-log-2026 diff=git-crypt-log-2026
+
+# Never encrypt these, whatever the patterns above would otherwise do.
+.gitattributes       !filter !diff
+log/LICENSE          !filter !diff
+log/.gitkeep         !filter !diff
