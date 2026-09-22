@@ -4,8 +4,8 @@ A daily practice that rehearses a craft rather than just reading about one, plus
 Claude Code skills that run it. Published so it can be forked; the practice record itself
 stays encrypted.
 
-**Status: under construction.** The design is complete; the implementation is not. `bin/`
-is stubs. See `INSTALL.md` (not yet written) for setup once there is something to set up.
+**Status: early.** The machinery runs; the practice has not yet survived a month of real
+use, which is the only test that matters. See **[INSTALL.md](INSTALL.md)**.
 
 ## Three tiers
 

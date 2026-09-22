@@ -1,4 +1,28 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<opml version="2.0"><head><title>kata feeds</title></head><body>
-  <!-- TODO: populate from Appendix A. Cap at ~15. -->
-</body></opml>
+<!-- Capped deliberately. A 60-feed reader is a guilt machine; the Scan block is ten
+     minutes and is meant to be finishable. -->
+<opml version="2.0">
+  <head><title>kata feeds</title></head>
+  <body>
+    <outline text="Staff scope">
+      <outline type="rss" text="Irrational Exuberance (Will Larson)" xmlUrl="https://lethain.com/feeds/"/>
+      <outline type="rss" text="StaffEng" xmlUrl="https://staffeng.com/rss.xml"/>
+      <outline type="rss" text="charity.wtf" xmlUrl="https://charity.wtf/feed/"/>
+    </outline>
+    <outline text="Systems">
+      <outline type="rss" text="Marc Brooker" xmlUrl="https://brooker.co.za/blog/rss.xml"/>
+      <outline type="rss" text="ACM Queue" xmlUrl="https://queue.acm.org/rss/feeds/queuecontent.xml"/>
+      <outline type="rss" text="Brendan Gregg" xmlUrl="https://www.brendangregg.com/blog/rss.xml"/>
+    </outline>
+    <outline text="Ruby / Rails">
+      <outline type="rss" text="This Week in Rails" xmlUrl="https://rubyonrails.org/feed.xml"/>
+      <outline type="rss" text="Evil Martians" xmlUrl="https://evilmartians.com/chronicles.atom"/>
+    </outline>
+    <outline text="Frontend">
+      <outline type="rss" text="Josh W. Comeau" xmlUrl="https://www.joshwcomeau.com/rss.xml"/>
+      <outline type="rss" text="Overreacted (Dan Abramov)" xmlUrl="https://overreacted.io/rss.xml"/>
+    </outline>
+    <!-- Wednesday's track is deliberately NOT a feed. Its sources are books, research and
+         people, and a feed would turn a competence track into a news cycle. -->
+  </body>
+</opml>
