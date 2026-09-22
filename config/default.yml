@@ -1,0 +1,19 @@
+# Shared routine definition. Machine-specific overrides live in config/profiles/.
+# Anything secret belongs in config/*.local.yml (gitignored), never here.
+schedule:
+  # Morning by default, but the practice is not morning-locked.
+  prepare_at: "07:15"
+  weekdays_only: true
+
+blocks:
+  - { name: scan,     minutes: 10 }
+  - { name: depth,    minutes: 20 }   # study day: new input. kata day: a rep.
+  - { name: artifact, minutes: 10 }
+  - { name: signal,   minutes: 5 }
+
+rotation:
+  mon: { mode: study, track: systems }
+  tue: { mode: kata }
+  wed: { mode: study, track: identity }
+  thu: { mode: kata }
+  fri: { mode: re-rep }               # re-run a past kata, diff against the record

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+set -euo pipefail
+# TODO: not yet implemented. See MAKER_KATA_AND_SKILLS.md for the spec.
+echo "bin/mount-skills is a skeleton stub — not implemented yet." >&2
+exit 64

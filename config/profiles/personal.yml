@@ -1,0 +1,3 @@
+# KATA_PROFILE=personal
+write_tier: 1        # log/ and journal/ — encrypted, committed, synced
+push_on_exit: true

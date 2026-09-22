@@ -1,0 +1,6 @@
+# KATA_PROFILE=work
+# Decide deliberately whether this machine holds the git-crypt key at all. If it runs
+# MDM, DLP or a backup agent, unlocking here puts decrypted personal notes on monitored
+# hardware and the encryption buys nothing against the party most likely to read it.
+write_tier: 1
+push_on_exit: true
