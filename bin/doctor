@@ -30,7 +30,13 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || {
   printf '%sFAIL%s  not inside a git repository\n' "$R" "$N"; exit 1
 }
 cd "$ROOT"
-REPO=$(basename "$ROOT")
+
+# Derive the repo name from the REMOTE, not the directory. A worktree or a clone into a
+# differently-named directory would otherwise be told to look for the wrong key file —
+# and worktrees are exactly where the key goes missing, since each gets its own $GIT_DIR
+# and does not inherit git-crypt's key.
+REPO=$(git remote get-url origin 2>/dev/null | sed -e 's|.*[/:]||' -e 's|\.git$||')
+[ -n "$REPO" ] || REPO=$(basename "$ROOT")
 
 printf '%sbin/doctor%s  %s\n' "$B" "$N" "$ROOT"
 
