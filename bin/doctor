@@ -188,7 +188,7 @@ done
 if [ "$mounted" -gt 0 ]; then
   ok "$mounted skill(s) mounted into ~/.claude/skills"
 elif [ "$broken" -eq 0 ]; then
-  warn "no skills mounted" "bin/mount-skills --apply (then restart Claude — skills load at session start)"
+  warn "no skills mounted" "bin/mount-skills --apply"
 fi
 
 # --------------------------------------------------------------- schedule ----

@@ -1,6 +1,172 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-set -euo pipefail
-# TODO: not yet implemented. See MAKER_KATA_AND_SKILLS.md for the spec.
-echo "bin/mount-skills is a skeleton stub — not implemented yet." >&2
-exit 64
+#
+# bin/mount-skills — link this repo's skills into ~/.claude/skills so Claude sees them.
+#
+# This automates a pattern already in use by hand: patch-my-hosts and platform-doctor are
+# already symlinks from ~/.claude/skills into other repos.
+#
+# It writes into ~/.claude, which is not this repo's territory, so it is a DRY RUN by
+# default and never clobbers a real directory. Losing a hand-written skill to a mount
+# script is not a recoverable mistake.
+
+set -uo pipefail
+
+usage() {
+  cat <<'USAGE'
+usage: bin/mount-skills [--apply] [--unmount] [--only NAME]...
+
+  (no flags)      dry run — print what would change, touch nothing
+  --apply         actually create/remove the symlinks
+  --unmount       remove our symlinks instead of creating them
+  --only NAME     restrict to one skill; repeatable
+  -h, --help      this
+
+Newly mounted skills were observed appearing mid-session (2026-09-22), but that is not
+guaranteed — restart Claude if a skill does not show up.
+USAGE
+}
+
+APPLY=0; UNMOUNT=0; ONLY=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply)   APPLY=1 ;;
+    --unmount) UNMOUNT=1 ;;
+    --only)    shift; [ $# -gt 0 ] || { echo "--only needs a NAME" >&2; exit 2; }; ONLY+=("$1") ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+  shift
+done
+
+if [ -t 1 ]; then R=$'\033[31m'; G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[1m'; N=$'\033[0m'
+else R=; G=; Y=; B=; N=; fi
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not inside a git repository" >&2; exit 1; }
+SRC="$ROOT/skills"
+DEST="$HOME/.claude/skills"
+
+[ -d "$SRC" ] || { echo "no skills/ directory at $SRC" >&2; exit 1; }
+
+refusals=0; changes=0
+
+act()  { printf '  %s%-8s%s %-22s %s\n' "$1" "$2" "$N" "$3" "${4:-}"; }
+wanted() {
+  [ ${#ONLY[@]} -eq 0 ] && return 0
+  local n; for n in "${ONLY[@]}"; do [ "$n" = "$1" ] && return 0; done
+  return 1
+}
+
+printf '%smount-skills%s  %s -> %s%s\n' "$B" "$N" "$SRC" "$DEST" \
+  "$([ "$APPLY" -eq 1 ] && echo '' || echo "  ${Y}(dry run)${N}")"
+
+mkdir -p "$DEST" 2>/dev/null || true
+
+# ---------------------------------------------------------------- mount ------
+if [ "$UNMOUNT" -eq 0 ]; then
+  printf '\n%sSystem mount%s\n' "$B" "$N"
+  found=0
+  for d in "$SRC"/*/; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d")
+    wanted "$name" || continue
+    found=1
+    link="$DEST/$name"
+
+    # A skill without a SKILL.md will not be recognised; say so rather than linking silently.
+    [ -f "$d/SKILL.md" ] || act "$Y" "NO-SPEC" "$name" "missing SKILL.md — linking anyway"
+
+    if [ -L "$link" ]; then
+      target=$(readlink "$link")
+      if [ "$target" = "$d" ] || [ "$target" = "${d%/}" ]; then
+        act "$G" "OK" "$name" "already linked"
+      elif [ ! -e "$link" ]; then
+        act "$Y" "REPAIR" "$name" "broken link -> $target"
+        [ "$APPLY" -eq 1 ] && ln -sfn "${d%/}" "$link"
+        changes=$((changes + 1))
+      else
+        act "$R" "CONFLICT" "$name" "links elsewhere -> $target"
+        refusals=$((refusals + 1))
+      fi
+    elif [ -e "$link" ]; then
+      # The one that matters. Never move, merge or overwrite a real directory.
+      act "$R" "REFUSE" "$name" "a real directory already exists here — resolve by hand"
+      refusals=$((refusals + 1))
+    else
+      act "$G" "LINK" "$name" "$link"
+      [ "$APPLY" -eq 1 ] && ln -sfn "${d%/}" "$link"
+      changes=$((changes + 1))
+    fi
+  done
+  [ "$found" -eq 1 ] || act "$Y" "EMPTY" "—" "no skills in $SRC yet"
+
+  # --- orphans: we linked it once, the skill has since graduated or been renamed -------
+  for link in "$DEST"/*; do
+    [ -L "$link" ] || continue
+    name=$(basename "$link")
+    case "$name" in synced) continue ;; esac
+    target=$(readlink "$link")
+    case "$target" in "$SRC"/*) ;; *) continue ;; esac
+    [ -e "$link" ] && continue
+    act "$Y" "ORPHAN" "$name" "source is gone — removing"
+    [ "$APPLY" -eq 1 ] && rm -f "$link"
+    changes=$((changes + 1))
+  done
+
+  # --- repo-local links, so the skills also load when working inside this repo ---------
+  printf '\n%sRepo-local (.claude/skills)%s\n' "$B" "$N"
+  mkdir -p "$ROOT/.claude/skills" 2>/dev/null || true
+  any=0
+  for d in "$SRC"/*/; do
+    [ -d "$d" ] || continue
+    name=$(basename "$d"); wanted "$name" || continue
+    any=1
+    rl="$ROOT/.claude/skills/$name"
+    if [ -L "$rl" ] && [ "$(readlink "$rl")" = "../../skills/$name" ]; then
+      act "$G" "OK" "$name" "../../skills/$name"
+    elif [ -e "$rl" ] && [ ! -L "$rl" ]; then
+      act "$R" "REFUSE" "$name" "real path in repo at .claude/skills/$name"
+      refusals=$((refusals + 1))
+    else
+      act "$G" "LINK" "$name" "../../skills/$name"
+      [ "$APPLY" -eq 1 ] && ln -sfn "../../skills/$name" "$rl"
+      changes=$((changes + 1))
+    fi
+  done
+  [ "$any" -eq 1 ] || act "$Y" "EMPTY" "—" "nothing to link"
+
+# -------------------------------------------------------------- unmount ------
+else
+  printf '\n%sUnmount%s\n' "$B" "$N"
+  any=0
+  for link in "$DEST"/*; do
+    [ -L "$link" ] || continue
+    name=$(basename "$link")
+    case "$name" in synced) continue ;; esac   # Claude-managed bucket, not ours
+    wanted "$name" || continue
+    target=$(readlink "$link")
+    case "$target" in
+      "$SRC"/*) any=1
+                act "$G" "REMOVE" "$name" "$target"
+                [ "$APPLY" -eq 1 ] && rm -f "$link"
+                changes=$((changes + 1)) ;;
+      *) ;;                                     # not ours; leave it alone
+    esac
+  done
+  [ "$any" -eq 1 ] || act "$Y" "NONE" "—" "nothing mounted from this repo"
+fi
+
+# ---------------------------------------------------------------- summary ----
+printf '\n'
+if [ "$refusals" -gt 0 ]; then
+  printf '%s%d refused%s — resolve by hand, nothing was overwritten\n' "$R" "$refusals" "$N"
+fi
+if [ "$APPLY" -eq 0 ] && [ "$changes" -gt 0 ]; then
+  printf '%d change(s) pending. Re-run with %s--apply%s.\n' "$changes" "$B" "$N"
+elif [ "$APPLY" -eq 1 ] && [ "$changes" -gt 0 ]; then
+  printf '%d change(s) applied. %sRestart Claude%s if a skill does not appear.\n' "$changes" "$B" "$N"
+elif [ "$changes" -eq 0 ] && [ "$refusals" -eq 0 ]; then
+  printf 'nothing to do.\n'
+fi
+[ "$refusals" -gt 0 ] && exit 1
+exit 0
