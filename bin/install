@@ -1,6 +1,76 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: Apache-2.0
-set -euo pipefail
-# TODO: not yet implemented. See MAKER_KATA_AND_SKILLS.md for the spec.
-echo "bin/install is a skeleton stub — not implemented yet." >&2
-exit 64
+#
+# bin/install — wire this checkout into the machine.
+#
+#   bin/install            dry run: print every change, touch nothing
+#   bin/install --apply    do it
+#   bin/install --uninstall [--apply]
+#
+# Dry run by default because it writes outside the repo: a launchd agent, a git config,
+# and symlinks under ~/.claude.
+
+set -uo pipefail
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || { echo "not in a git repository" >&2; exit 1; }
+cd "$ROOT"
+
+APPLY=0; UNINSTALL=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) APPLY=1 ;; --uninstall) UNINSTALL=1 ;;
+    -h|--help) sed -n '3,10p' "$0" | sed 's|^# \?||'; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
+  esac; shift
+done
+
+if [ -t 1 ]; then G=$'\033[32m'; Y=$'\033[33m'; B=$'\033[1m'; N=$'\033[0m'; else G=; Y=; B=; N=; fi
+step() { printf '  %s%-7s%s %s\n' "$G" "$1" "$N" "$2"; }
+LABEL=tech.larcity.maker-kata
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+PROFILE="${KATA_PROFILE:-personal}"
+# 10# forces decimal: "07" as a bare integer is octal in bash and a leading zero in a
+# plist <integer> is not valid either.
+HOUR=$((10#$(awk -F'"' '/prepare_at/{split($2,a,":"); print a[1]}' config/default.yml)))
+MIN=$((10#$(awk -F'"' '/prepare_at/{split($2,a,":"); print a[2]}' config/default.yml)))
+
+printf '%sinstall%s  %s%s\n' "$B" "$N" "$ROOT" "$([ "$APPLY" -eq 1 ] && echo '' || echo "  ${Y}(dry run)${N}")"
+
+if [ "$UNINSTALL" -eq 1 ]; then
+  printf '\n%sUninstall%s\n' "$B" "$N"
+  step "unload" "$LABEL"
+  step "remove" "$PLIST"
+  step "unmount" "bin/mount-skills --unmount"
+  step "unset" "core.hooksPath"
+  if [ "$APPLY" -eq 1 ]; then
+    launchctl unload "$PLIST" 2>/dev/null || true
+    rm -f "$PLIST"
+    ./bin/mount-skills --unmount --apply >/dev/null
+    git config --unset core.hooksPath 2>/dev/null || true
+    echo "uninstalled. The repo and its history are untouched."
+  fi
+  exit 0
+fi
+
+printf '\n%sGuards%s\n' "$B" "$N"
+step "config" "core.hooksPath = .githooks"
+[ "$APPLY" -eq 1 ] && git config core.hooksPath .githooks
+
+printf '\n%sSkills%s\n' "$B" "$N"
+if [ "$APPLY" -eq 1 ]; then ./bin/mount-skills --apply | sed 's|^|  |'; else ./bin/mount-skills | sed 's|^|  |'; fi
+
+printf '\n%sSchedule%s\n' "$B" "$N"
+step "render" "$PLIST  (${HOUR}:${MIN}, weekdays, KATA_PROFILE=$PROFILE)"
+step "load" "$LABEL"
+if [ "$APPLY" -eq 1 ]; then
+  mkdir -p "$HOME/Library/LaunchAgents"
+  sed -e "s|__ROOT__|$ROOT|g" -e "s|__PROFILE__|$PROFILE|g" \
+      -e "s|__HOUR__|$HOUR|g" -e "s|__MIN__|$MIN|g" \
+      launchd/$LABEL.plist.template > "$PLIST"
+  plutil -lint "$PLIST" >/dev/null || { echo "plist failed lint — not loading" >&2; exit 1; }
+  launchctl unload "$PLIST" 2>/dev/null || true
+  launchctl load "$PLIST" && echo "  loaded."
+fi
+
+printf '\n%sShell%s — add to your rc if not already there:\n' "$B" "$N"
+printf '  export KATA_PROFILE=%s\n  export EDITOR=%s\n' "$PROFILE" "${EDITOR:-vim}"
+printf '\n%s\n' "$([ "$APPLY" -eq 1 ] && echo 'Installed. Run bin/doctor to confirm.' || echo "Dry run. Re-run with ${B}--apply${N}.")"

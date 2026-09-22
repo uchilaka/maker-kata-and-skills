@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>tech.larcity.maker-kata</string>
+
+  <!-- Renders today's entry and notifies. Deliberately NOT the interactive command:
+       launchd is bad at owning a terminal, and an agent that opens one trains you to
+       dismiss it. -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>__ROOT__/bin/kata</string>
+    <string>--prepare</string>
+  </array>
+  <key>WorkingDirectory</key><string>__ROOT__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>KATA_PROFILE</key><string>__PROFILE__</string>
+    <key>PATH</key><string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <!-- Weekdays only. Weekend = rest; the rotation has no shape for it. -->
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MIN__</integer></dict>
+    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MIN__</integer></dict>
+    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MIN__</integer></dict>
+    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MIN__</integer></dict>
+    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>__HOUR__</integer><key>Minute</key><integer>__MIN__</integer></dict>
+  </array>
+
+  <!-- Never at load: a fresh boot is exactly when the repo is still locked. -->
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>__ROOT__/.git/kata-prepare.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/.git/kata-prepare.log</string>
+</dict>
+</plist>
