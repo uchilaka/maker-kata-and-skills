@@ -9,6 +9,16 @@ config:
     code_blocks: false
     tables: false
 
+# NO `globs:` key here, deliberately. Config globs are APPENDED to any paths given on
+# the command line — `markdownlint-cli2 README.md` with a glob set lints README.md *plus*
+# every other file — which would silently widen the pre-commit hook from "the files you
+# staged" to "the whole repo" on every commit.
+#
+# The cost of leaving it out: a bare `markdownlint-cli2` finds nothing and exits 0, which
+# reads as a pass but checked zero files. For a repo-wide run, say so explicitly:
+#
+#   markdownlint-cli2 "**/*.md"
+
 ignores:
   # Symlinks back into skills/ — linting them double-reports every finding.
   - ".claude/**"

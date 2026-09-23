@@ -17,10 +17,22 @@ version, not what the diff did.
 - Skills: `pro-voice`, `kata-init`, `kata-release`.
 - Katas: `read-a-subsystem`, `explain-it-to-a-twelve-year-old`. Tracks: systems, identity.
 - Licensing: Apache-2.0 (code), CC BY 4.0 (prose), all rights reserved (`log/`).
+- Markdown linting: one `.markdownlint-cli2.yaml` read by both the CLI and the VS Code
+  extension, a warn-only pre-commit check over staged `*.md`, and a `Brewfile` pinning
+  `markdownlint-cli2` and `gitleaks`. `.vscode/` settings travel with the clone, so
+  lint-on-save needs no per-machine setup. A repo-wide run must name its paths —
+  `markdownlint-cli2 "**/*.md"` — because the config sets no `globs:` on purpose: config
+  globs are appended to command-line paths, which would widen the hook from the files you
+  staged to the whole repo.
+
+### Fixed
+
+- `bin/doctor` no longer reports a loaded launchd agent as missing. The schedule check
+  piped `launchctl list` into `grep -q` under `pipefail`, so the producer died of SIGPIPE
+  and the pipeline returned 141 rather than grep's 0. `bin/doctor` can now exit 0 on a
+  correctly installed machine, which was not previously reachable.
 
 ### Known gaps
 
 - `bin/kata` does not yet fetch feeds into the Scan block; `sources/feeds.opml` is a stub.
 - No eval for `pro-voice`. The plan wants one before a second skill migrates onto it.
-- `gitleaks` is not installed on the author's machine, so the pre-commit secret scan is
-  skipped with a note. The two native guards run regardless.
