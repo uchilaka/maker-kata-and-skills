@@ -9,7 +9,7 @@ use, which is the only test that matters. See **[INSTALL.md](INSTALL.md)**.
 
 ## Three tiers
 
-```
+```text
 ┌─ tier 0 · public ────────────────────────────────────────┐
 │  bin/  config/  practice/  skills/  sources/  README     │
 │  plaintext — the machinery, meant to be taken            │
