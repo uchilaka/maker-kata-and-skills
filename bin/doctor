@@ -211,7 +211,12 @@ fi
 head2 "Schedule"
 
 label="tech.larcity.maker-kata"
-if launchctl list 2>/dev/null | grep -q "$label"; then
+# `launchctl list | grep -q` is a trap under `pipefail`: grep -q exits on its first
+# match, launchctl (579 lines on this machine) then dies of SIGPIPE, and the pipeline
+# reports 141 even though the agent IS loaded. Same class as the `|| true` in
+# worktree-init — a check that fails on its own success path. Passing the label to
+# launchctl drops the pipe entirely and lets it set its own exit status.
+if launchctl list "$label" >/dev/null 2>&1; then
   ok "launchd agent loaded ($label)"
 else
   warn "launchd agent not loaded" "bin/install — the practice still runs by hand without it"
