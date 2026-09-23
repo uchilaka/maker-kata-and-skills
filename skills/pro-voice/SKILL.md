@@ -7,7 +7,7 @@ description: Audit a draft against your own writing voice, or learn that voice f
 
 Two modes:
 
-```
+```text
 /pro-voice --learn <glob>    mine exemplars from what you already wrote
 /pro-voice <file>            audit a draft, flag drift, offer a rewrite per flag
 ```
@@ -72,7 +72,7 @@ Making your not-knowing visible first is what makes the reader's not-knowing saf
 Three or more steps, two systems talking, a state change, or a decision point → a stick
 diagram, ≤ 72 chars wide. An abstract concept → a concrete analogy from ordinary life.
 
-```
+```text
 ┌──────────┐     ┌──────────────┐     ┌──────────────┐
 │ raw input│ ──▶ │  validate &  │ ──▶ │  saved row   │
 └──────────┘     └──────┬───────┘     └──────────────┘
@@ -85,7 +85,7 @@ Box-drawing: `┌ ┐ └ ┘ │ ─ ├ ┤ ┬ ┴ ┼` · arrows `→ ← �
 
 Neither changes the invariants. The diagram bias applies across the whole grid.
 
-```
+```text
                   peer reader          newcomer reader
                 ┌───────────────────┬────────────────────┐
   my own work   │ terse, unhedged   │ define inline,     │
@@ -107,7 +107,7 @@ and let the peer skim.
 
 ## Audit mode
 
-```
+```text
 /pro-voice DRAFT.md
 ```
 
@@ -123,7 +123,7 @@ and let the peer skim.
 
 Output shape:
 
-```
+```text
 cell: other × peer
 
   line 14   invariant 2 (never at someone's expense)
@@ -141,7 +141,7 @@ cell: other × peer
 
 ## Learn mode
 
-```
+```text
 /pro-voice --learn ~/pr-reviews/**/*.md ~/project-plans/**/*.md
 ```
 

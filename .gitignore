@@ -10,4 +10,6 @@ config/*.local.yml
 .DS_Store
 *.swp
 .idea/
-.vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json

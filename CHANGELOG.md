@@ -6,6 +6,7 @@ version, not what the diff did.
 ## [Unreleased]
 
 ### Added
+
 - Encryption baseline: three tiers (public / git-crypt / never-committed), with `log/`
   keyed per year so a key grant is bounded to one year of source material.
 - `bin/doctor` — preflight checks, all of them for failures that are otherwise silent.
@@ -18,6 +19,7 @@ version, not what the diff did.
 - Licensing: Apache-2.0 (code), CC BY 4.0 (prose), all rights reserved (`log/`).
 
 ### Known gaps
+
 - `bin/kata` does not yet fetch feeds into the Scan block; `sources/feeds.opml` is a stub.
 - No eval for `pro-voice`. The plan wants one before a second skill migrates onto it.
 - `gitleaks` is not installed on the author's machine, so the pre-commit secret scan is

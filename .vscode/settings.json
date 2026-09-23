@@ -1,0 +1,5 @@
+{
+  // Lint on save rather than on every keystroke. Rules come from .markdownlint-cli2.yaml,
+  // shared with the pre-commit hook.
+  "markdownlint.run": "onSave"
+}

@@ -57,5 +57,21 @@ else
   say "note: gitleaks not installed; secret scan skipped (brew install gitleaks)"
 fi
 
+# --- 4. markdownlint, when available — warns, never blocks ---------------------------
+# Style is recoverable in a follow-up commit, so it doesn't earn a place alongside the
+# checks above. Tier-1 paths are skipped by the config's own ignores. Lints the working
+# copy, not the staged blob — close enough for a warning.
+if command -v markdownlint-cli2 >/dev/null 2>&1; then
+  md=()
+  while IFS= read -r f; do
+    case "$f" in *.md) md+=("$f") ;; esac
+  done <<< "$staged"
+  if [ "${#md[@]}" -gt 0 ] && ! markdownlint-cli2 "${md[@]}" >/dev/null 2>&1; then
+    say "warning: markdownlint flagged staged files — run: markdownlint-cli2 ${md[*]}"
+  fi
+else
+  say "note: markdownlint-cli2 not installed; lint skipped (brew bundle)"
+fi
+
 [ "$fail" -eq 0 ] || { say "commit blocked."; exit 1; }
 exit 0

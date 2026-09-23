@@ -1,0 +1,18 @@
+# Baseline markdownlint config. Read by markdownlint-cli2 and by the VS Code
+# markdownlint extension, so the editor and the CLI agree.
+config:
+  default: true
+  # Prose here is hard-wrapped at 90 columns. Code and tables can't wrap
+  # without changing meaning, so they're exempt.
+  MD013:
+    line_length: 90
+    code_blocks: false
+    tables: false
+
+ignores:
+  # Symlinks back into skills/ — linting them double-reports every finding.
+  - ".claude/**"
+  # Tier-1 paths are git-crypt ciphertext in a locked checkout, not markdown.
+  - "journal/**"
+  - "log/**"
+  - "sources/private/**"
