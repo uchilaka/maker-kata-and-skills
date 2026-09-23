@@ -24,7 +24,7 @@ git-crypt unlock ~/.config/git-crypt/maker-kata-and-skills.log-2026.key
 
 Order matters, and this is the step that goes wrong:
 
-```
+```text
    clone ──▶ install git-crypt ──▶ unlock ──▶ doctor ──▶ first run
                                      │
                                      ↳ skipped? every tier-1 file is
