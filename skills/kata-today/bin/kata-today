@@ -1,0 +1,344 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# kata-today — the state and launch half of the /kata-today skill.
+#
+#   kata-today status [ENTRY]             what's due: catch-ups first, then today; per-block state
+#   kata-today prepare                    render today's entry (delegates to bin/kata --prepare)
+#   kata-today set-mode ENTRY MODE        record a study mode (navigating|structural|supporting)
+#   kata-today launch BLOCK ENTRY [--voice] [CATEGORY]...
+#                                         open what the block needs, open the entry, start its timer;
+#                                         --voice skips journal + editor and asks to record when time's up
+#   kata-today record                     start the pending voice note now (runs the voice app/Shortcut)
+#   kata-today check BLOCK ENTRY [--via iphone|mac] [--kind voice|text] GIST
+#                                         mark a block done when the notes live elsewhere
+#   kata-today feeds                      list feed categories (for a kata-day Scan)
+#   kata-today stop                       cancel the running block timer
+#   kata-today config [KEY [VALUE]]       show or set this machine's settings (journal app)
+#
+# The skill owns the conversation (the menu); this script owns every fact the menu is built
+# from, so the menu never guesses at a file it could have parsed.
+
+set -uo pipefail
+
+ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null) \
+  || { echo "kata-today: not inside the kata repo" >&2; exit 1; }
+cd "$ROOT"
+
+# Per-machine, gitignored (config/*.local.yml): the work laptop may not have the same
+# journaling app as the personal one, and neither should have to agree with the other.
+LOCAL_CFG=config/kata-today.local.yml
+TIMER_PID="${TMPDIR:-/tmp}/kata-today.timer.pid"
+# "BLOCK ENTRY" of a voice-mode block whose note isn't recorded/checked off yet. It
+# outlives the timer on purpose: the user may be away when the end-of-block dialog shows.
+VOICE_PENDING="${TMPDIR:-/tmp}/kata-today.voice-pending"
+BLOCKS=(scan depth artifact signal)
+
+die() { printf 'kata-today: %s\n' "$1" >&2; exit 1; }
+
+minutes_for() {   # from config/default.yml, so the timer and bin/kata never disagree
+  sed -n "s/.*name: *$1, *minutes: *\([0-9]*\).*/\1/p" config/default.yml | head -1
+}
+
+locked() { [ -f "$1" ] && head -c 9 "$1" 2>/dev/null | grep -qa GITCRYPT; }
+
+field() {         # header field from an entry: `track:   foo` -> foo
+  sed -n "s/^$2: *//p" "$1" | head -1 | sed 's/ \{2,\}.*//'
+}
+
+# A block is empty when every line in it is scaffolding: blank, a bare bullet, an empty
+# numbered item, or a prompt ending in ':' or ' —'. Scaffolding is what bin/kata and a
+# hand-prepared catch-up both leave behind, so "has the heading" can't mean "done".
+# A line that is only '—' is content: it's how an entry says "nothing today" on purpose.
+block_empty() {
+  local body
+  body=$(awk -v h="## $(tr '[:lower:]' '[:upper:]' <<<"${2:0:1}")${2:1}" '
+    $0 == h { on = 1; next }
+    on && /^## / { exit }
+    on { print }' "$1")
+  ! grep -vE '^\s*$|^\s*-\s*$|^\s*[0-9]+\.\s*$|:\s*$| —\s*$' <<<"$body" | grep -q .
+}
+
+track_file() {    # "race, power and people in tech" -> practice/tracks/identity.md
+  local t="$1" f
+  for f in practice/tracks/*.md; do
+    head -1 "$f" | grep -qiF "${t%% *}" && { echo "$f"; return; }
+  done
+}
+
+# Links for a block: `- scan: [Name](url)` always, `- scan/MODE: [...]` only in that mode.
+links_for() {     # FILE BLOCK MODE
+  sed -n '/^## Links/,/^## /p' "$1" 2>/dev/null \
+    | sed -nE "s#^- $2(/([a-z]+))?: *\[([^]]*)\]\(([^)]*)\).*#\2|\3|\4#p" \
+    | while IFS='|' read -r m name url; do
+        [ -z "$m" ] || [ "$m" = "$3" ] && printf '%s|%s\n' "$name" "$url"
+      done
+}
+
+link_modes() {    # modes that have their own links, so the skill knows to ask
+  sed -n '/^## Links/,/^## /p' "$1" 2>/dev/null \
+    | sed -nE 's#^- [a-z]+/([a-z]+):.*#\1#p' | sort -u | tr '\n' ' '
+}
+
+today_entry() { echo "log/$(date +%Y/%m/%d).md"; }
+
+# Unfinished entries from the last 7 days, oldest first. Artifact and Signal are the
+# blocks that make a day count, so an entry with either empty is a catch-up.
+catchups() {
+  local i d f
+  for i in 7 6 5 4 3 2 1; do
+    d=$(date -v-"$i"d +%Y/%m/%d 2>/dev/null) || d=$(date -d "-$i day" +%Y/%m/%d)
+    f="log/$d.md"
+    [ -f "$f" ] || continue
+    locked "$f" && continue
+    { block_empty "$f" artifact || block_empty "$f" signal; } && echo "$f"
+  done
+}
+
+missing_days() {  # past weekdays in the last 7 days with no entry, since the first entry
+  local i d dow first
+  first=$(find log -name '[0-9]*.md' 2>/dev/null | sort | head -1)
+  [ -n "$first" ] || return 0
+  for i in 7 6 5 4 3 2 1; do
+    dow=$(date -v-"$i"d +%a 2>/dev/null) || dow=$(date -d "-$i day" +%a)
+    case "$dow" in Sat|Sun) continue ;; esac
+    d=$(date -v-"$i"d +%Y/%m/%d 2>/dev/null) || d=$(date -d "-$i day" +%Y/%m/%d)
+    [[ "log/$d.md" < "$first" ]] && continue
+    [ -f "log/$d.md" ] || echo "log/$d.md"
+  done
+}
+
+describe() {      # per-entry facts, one `key: value` per line
+  local e="$1" shape track tf mode b next=""
+  shape=$(head -1 "$e" | awk -F' · ' '{print $3}')
+  printf 'entry: %s\nshape: %s\n' "$e" "$shape"
+  case "$shape" in
+    study)
+      track=$(field "$e" track); tf=$(track_file "$track"); mode=$(field "$e" mode)
+      printf 'track: %s\ntrack_file: %s\nmode: %s\nmodes_with_links: %s\n' \
+        "$track" "${tf:-—}" "${mode:-—}" "$( [ -n "$tf" ] && link_modes "$tf")" ;;
+    kata|re-rep)
+      printf 'kata: %s\nsubject: %s\nprior: %s\n' \
+        "$(field "$e" kata | awk '{print $1}')" "$(field "$e" subject)" "$(field "$e" prior)" ;;
+  esac
+  for b in "${BLOCKS[@]}"; do
+    if block_empty "$e" "$b"; then s=empty; [ -z "$next" ] && next=$b; else s=done; fi
+    printf 'block: %-8s %-5s %s min\n' "$b" "$s" "$(minutes_for "$b")"
+  done
+  printf 'next: %s\n' "${next:-complete}"
+}
+
+open_editor() {   # $EDITOR is `code --wait` for bin/kata; a launcher must not wait
+  local ed="${EDITOR:-}"; ed="${ed%% --wait*}"; ed="${ed%% -w*}"
+  if [ -n "$ed" ] && command -v "${ed%% *}" >/dev/null 2>&1; then $ed "$@" >/dev/null 2>&1 &
+  else open -t "$@"; fi
+}
+
+# MINUTES LABEL [VOICE] — replaces any running block timer. With VOICE set, the end of the
+# block is a dialog offering to record, not a notification: recording is the reflection
+# on the activity, so it belongs after it, not at launch. Values travel as env vars so a
+# Shortcut name with quotes or spaces can't break the nested quoting.
+start_timer() {
+  stop_timer quiet
+  KT_SECS=$(( $1 * 60 )) KT_LABEL="$2" KT_VOICE="${3:-}" KT_SELF="$0" nohup sh -c '
+    sleep "$KT_SECS"
+    if [ -n "$KT_VOICE" ]; then
+      afplay /System/Library/Sounds/Glass.aiff &
+      b=$(osascript -e "on run argv" \
+        -e "display dialog (item 1 of argv) & \" is up. Record your voice note now?\" buttons {\"Later\", \"Record\"} default button \"Record\" with title \"kata\" giving up after 600" \
+        -e "button returned of result" -e "end run" "$KT_LABEL" 2>/dev/null)
+      [ "$b" = Record ] && "$KT_SELF" record
+    else
+      osascript -e "on run argv" \
+        -e "display notification (item 1 of argv) & \" is up — move on.\" with title \"kata\" sound name \"Glass\"" \
+        -e "end run" "$KT_LABEL"
+    fi' >/dev/null 2>&1 &
+  printf '%s %s\n' "$!" "$2" > "$TIMER_PID"
+  printf 'timer: %s min for %s, ends %s\n' "$1" "$2" "$(date -v+"$1"M +%H:%M 2>/dev/null)"
+}
+
+stop_timer() {
+  [ -f "$TIMER_PID" ] || return 0
+  local pid blk; read -r pid blk < "$TIMER_PID"
+  # The sleep is a child of the sh. Kill the sh FIRST: killing the sleep first lets the
+  # sh run on into the chime and the record dialog before its own kill lands. The child
+  # pids are captured beforehand because they reparent once the sh is gone.
+  local kids; kids=$(pgrep -P "$pid" 2>/dev/null)
+  kill "$pid" 2>/dev/null && [ -z "${1:-}" ] && echo "timer: stopped"
+  [ -n "$kids" ] && kill $kids 2>/dev/null
+  rm -f "$TIMER_PID"
+}
+
+cfg() { sed -n "s/^$1: *//p" "$LOCAL_CFG" 2>/dev/null | head -1 | sed 's/ *#.*//'; }
+
+set_cfg() {       # KEY VALUE — rewrite in place, append if new
+  touch "$LOCAL_CFG"
+  if grep -q "^$1:" "$LOCAL_CFG"; then
+    KEY="$1" VAL="$2" perl -i -pe 's/^\Q$ENV{KEY}\E:.*/$ENV{KEY}: $ENV{VAL}/' "$LOCAL_CFG"
+  else printf '%s: %s\n' "$1" "$2" >> "$LOCAL_CFG"; fi
+}
+
+# Open the journaling app if this block is one the user takes notes in. Precedence is
+# shortcut > URL > app: a Shortcut can drive an App Intent no URL reaches (Apple Journal's
+# audio entry has no public moments:// route, only a Shortcuts action), and a deep link
+# still lands closer to the right note than opening the app does.
+# {date} and {shape} in the URL are filled from the entry. PREFIX picks journal_* or voice_*.
+open_journal() {  # BLOCK ENTRY [PREFIX]
+  local blocks url app sc d shape p=${3:-journal}
+  if [ "$p" = journal ]; then
+    blocks=" $(cfg journal_blocks) "
+    [[ "$blocks" == *" $1 "* ]] || return 0
+  fi
+  url=$(cfg "${p}_url"); app=$(cfg "${p}_app"); sc=$(cfg "${p}_shortcut")
+  [ "$app" = none ] && app=
+  if [ -n "$sc" ]; then
+    printf '%s: shortcut "%s"\n' "$p" "$sc"
+    shortcuts list 2>/dev/null | grep -qxF "$sc" \
+      || { echo "$p: no Shortcut named '$sc' — create it in Shortcuts.app" >&2; return 0; }
+    nohup shortcuts run "$sc" >/dev/null 2>&1 &
+    return 0
+  fi
+  [ -n "$url$app" ] || { [ "$p" = voice ] && die "no voice app set — kata-today config voice_app NAME"; return 0; }
+  d=$(printf '%s' "${2#log/}" | sed 's|\.md$||; s|/|-|g')
+  shape=$(head -1 "$2" | awk -F' · ' '{print $3}')
+  if [ -n "$url" ]; then
+    url=${url//\{date\}/$d}; url=${url//\{shape\}/$shape}
+    printf '%s: %s  %s\n' "$p" "${app:-url}" "$url"; open "$url"
+  elif [ -n "$app" ]; then
+    printf '%s: %s\n' "$p" "$app"; open -a "$app" || echo "$p: could not open '$app'" >&2
+  fi
+}
+
+# Write the check-off into the block: the first bare '- ' scaffold line becomes the marker,
+# or it goes directly under the heading. Either way block_empty then reads it as done.
+check_block() {   # BLOCK ENTRY LINE
+  local h tmp
+  h="## $(tr '[:lower:]' '[:upper:]' <<<"${1:0:1}")${1:1}"
+  grep -qx "$h" "$2" || die "no '$h' section in $2"
+  tmp=$(mktemp)
+  LINE="$3" awk -v h="$h" '
+    $0 == h { print; on = 1; next }
+    on && /^## / { if (!done) { print ENVIRON["LINE"]; print ""; done = 1 } on = 0 }
+    on && !done && /^[[:space:]]*-[[:space:]]*$/ { print ENVIRON["LINE"]; done = 1; next }
+    on && !done && /^[[:space:]]*$/ { print; next }
+    on && !done { print ENVIRON["LINE"]; done = 1 }
+    { print }
+    END { if (on && !done) print ENVIRON["LINE"] }' "$2" > "$tmp" && mv "$tmp" "$2"
+}
+
+open_url() { printf 'open: %s  %s\n' "$1" "$2"; open "$2"; }
+
+cmd=${1:-status}; shift || true
+case "$cmd" in
+  status)
+    if [ -n "${1:-}" ]; then describe "$1"; exit 0; fi
+    t=$(today_entry)
+    printf 'today: %s %s\n' "$(date +%Y-%m-%d)" "$(date +%a | tr '[:upper:]' '[:lower:]')"
+    if [ -s "$LOCAL_CFG" ]; then
+      printf 'journal: %s (blocks: %s)\nvoice: %s\n' "$(cfg journal_app)" "$(cfg journal_blocks)" "$( [ -n "$(cfg voice_shortcut)" ] && echo "shortcut: $(cfg voice_shortcut)" || cfg voice_app)"
+    else echo 'journal: unset — run setup'; fi
+    [ -f "$VOICE_PENDING" ] && printf 'voice_pending: %s\n' "$(cat "$VOICE_PENDING")"
+    printf 'today_entry: %s (%s)\n' "$t" "$( [ -f "$t" ] && echo present || echo missing)"
+    locked "$t" && die "repo is LOCKED — tier-1 files are ciphertext. Unlock first."
+    while IFS= read -r f; do [ -n "$f" ] && printf 'catchup: %s\n' "$f"; done < <(catchups)
+    while IFS= read -r f; do [ -n "$f" ] && printf 'missing: %s\n' "$f"; done < <(missing_days)
+    [ -f "$t" ] && { echo; describe "$t"; }
+    ;;
+  prepare)
+    [ -n "${KATA_PROFILE:-}" ] || die "KATA_PROFILE unset (personal|work)"
+    bin/kata --prepare ;;
+  set-mode)
+    e=${1:?entry}; m=${2:?mode}
+    case "$m" in navigating|structural|supporting) ;; *) die "unknown mode: $m" ;; esac
+    locked "$e" && die "$e is ciphertext"
+    if grep -q '^mode:' "$e"; then sed -i '' -E "s/^mode: *[a-z]*/mode:    $m/" "$e"
+    else sed -i '' -E "/^track:/a\\
+mode:    $m
+" "$e"; fi
+    echo "mode: $m" ;;
+  launch)
+    b=${1:?block}; e=${2:?entry}; shift 2
+    [ -f "$e" ] || die "no entry at $e — run: kata-today prepare"
+    locked "$e" && die "$e is ciphertext"
+    if [ "${1:-}" = --voice ]; then
+      # Voice replaces the note-taking surfaces, not the block's inputs: a Depth block
+      # still needs its reading open. The editor stays shut — it's noise while talking.
+      shift; VOICE=1
+    else VOICE=0; fi
+    shape=$(head -1 "$e" | awk -F' · ' '{print $3}')
+    case "$b:$shape" in
+      scan:study|depth:study)
+        tf=$(track_file "$(field "$e" track)"); mode=$(field "$e" mode)
+        n=0
+        while IFS='|' read -r name url; do open_url "$name" "$url"; n=$((n+1)); done \
+          < <(links_for "$tf" "$b" "$mode")
+        [ "$n" -gt 0 ] || echo "open: nothing — add \`- $b: [Name](url)\` under ## Links in $tf" ;;
+      scan:*)
+        # Kata days scan the feeds; categories keep ten tabs from opening at once.
+        [ $# -gt 0 ] || die "kata-day scan needs a feed CATEGORY (see: kata-today feeds)"
+        for c in "$@"; do
+          awk -v c="$c" '
+            index($0, "text=\"" c "\"") && !/type=/ { on = 1; next }
+            on && /<\/outline>/ { exit }
+            on { print }' sources/feeds.opml | tr '\n' ' ' | sed 's#/>#\
+#g' \
+            | sed -nE 's/.* text="([^"]*)".* htmlUrl="([^"]*)".*/\1|\2/p' \
+            | while IFS='|' read -r name url; do open_url "$name" "$url"; done
+        done ;;
+      depth:kata)
+        k=$(field "$e" kata | awk '{print $1}')
+        if [ -f "practice/katas/$k.md" ]; then open_editor "practice/katas/$k.md"
+        else echo "open: no form file for '$k' — the entry carries the form"; fi ;;
+      depth:re-rep)
+        p=$(field "$e" prior)
+        [ -f "log/${p//-//}.md" ] && open_editor "log/${p//-//}.md" \
+          || echo "open: no prior entry — fill \`prior:\` with the YYYY-MM-DD you're re-running" ;;
+    esac
+    if [ "$VOICE" -eq 1 ]; then
+      printf '%s %s\n' "$b" "$e" > "$VOICE_PENDING"
+      printf 'voice: will ask to record when %s ends (or: kata-today record)\n' "$b"
+      start_timer "$(minutes_for "$b")" "$b" voice
+    else
+      rm -f "$VOICE_PENDING"
+      open_journal "$b" "$e"; open_editor "$e"; printf 'edit: %s\n' "$e"
+      start_timer "$(minutes_for "$b")" "$b"
+    fi ;;
+  record)
+    [ -f "$VOICE_PENDING" ] || echo "record: no voice note pending — recording anyway"
+    read -r b e < "$VOICE_PENDING" 2>/dev/null || { b=note; e=$(today_entry); }
+    stop_timer quiet
+    open_journal "$b" "$e" voice ;;
+  check)
+    b=${1:?block}; e=${2:?entry}; shift 2
+    via=iphone; kind=voice
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --via)  via=${2:?}; shift 2 ;;
+        --kind) kind=${2:?}; shift 2 ;;
+        *) break ;;
+      esac
+    done
+    gist="$*"
+    # The one-liner is required: --review compiles Artifact and Signal from these lines,
+    # and a bare "did it" tells a future review nothing.
+    [ -n "$gist" ] || die "check needs a one-line gist of what you recorded"
+    [ -f "$e" ] || die "no entry at $e"; locked "$e" && die "$e is ciphertext"
+    case "$via" in iphone) icon=📱; where=iPhone ;; mac) icon=💻; where=Mac ;; *) die "--via iphone|mac" ;; esac
+    check_block "$b" "$e" "- $icon journaled on $where ($kind) — $gist"
+    # Only this block's timer: checking off an earlier block mid-way through the next
+    # one must not silence the block that's running.
+    [ -f "$TIMER_PID" ] && [ "$(awk '{print $2}' "$TIMER_PID")" = "$b" ] && stop_timer quiet
+    grep -qxF "$b $e" "$VOICE_PENDING" 2>/dev/null && rm -f "$VOICE_PENDING"
+    printf 'checked: %s in %s\n' "$b" "$e" ;;
+  feeds)
+    grep -oE '<outline text="[^"]*">' sources/feeds.opml | sed -E 's/.*text="([^"]*)".*/\1/' ;;
+  stop) stop_timer ;;
+  config)
+    if [ $# -ge 2 ]; then
+      case "$1" in journal_app|journal_url|journal_shortcut|journal_blocks|voice_app|voice_url|voice_shortcut) ;; *) die "unknown key: $1" ;; esac
+      k=$1; shift; set_cfg "$k" "$*"; printf '%s: %s\n' "$k" "$(cfg "$k")"
+    elif [ $# -eq 1 ]; then cfg "$1"
+    else cat "$LOCAL_CFG" 2>/dev/null || echo "(no $LOCAL_CFG yet)"; fi ;;
+  -h|--help) sed -n '3,21p' "$0" | sed 's|^# \{0,1\}||' ;;
+  *) die "unknown command: $cmd" ;;
+esac
