@@ -114,6 +114,8 @@ if [ "$UNMOUNT" -eq 0 ]; then
   done
 
   # --- repo-local links, so the skills also load when working inside this repo ---------
+  # These exist for adopters: a fresh clone gets the skills with no install step. The
+  # system links above point at skills/<name> directly and never route through these.
   printf '\n%sRepo-local (.claude/skills)%s\n' "$B" "$N"
   mkdir -p "$ROOT/.claude/skills" 2>/dev/null || true
   any=0
