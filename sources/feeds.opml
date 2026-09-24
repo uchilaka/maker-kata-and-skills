@@ -5,22 +5,32 @@
   <head><title>kata feeds</title></head>
   <body>
     <outline text="Staff scope">
-      <outline type="rss" text="Irrational Exuberance (Will Larson)" xmlUrl="https://lethain.com/feeds/"/>
-      <outline type="rss" text="StaffEng" xmlUrl="https://staffeng.com/rss.xml"/>
-      <outline type="rss" text="charity.wtf" xmlUrl="https://charity.wtf/feed/"/>
+      <outline type="rss" text="Irrational Exuberance (Will Larson)" xmlUrl="https://lethain.com/feeds/"
+               htmlUrl="https://lethain.com/"/>
+      <outline type="rss" text="StaffEng" xmlUrl="https://staffeng.com/rss.xml"
+               htmlUrl="https://staffeng.com/"/>
+      <outline type="rss" text="charity.wtf" xmlUrl="https://charity.wtf/feed/"
+               htmlUrl="https://charity.wtf/"/>
     </outline>
     <outline text="Systems">
-      <outline type="rss" text="Marc Brooker" xmlUrl="https://brooker.co.za/blog/rss.xml"/>
-      <outline type="rss" text="ACM Queue" xmlUrl="https://queue.acm.org/rss/feeds/queuecontent.xml"/>
-      <outline type="rss" text="Brendan Gregg" xmlUrl="https://www.brendangregg.com/blog/rss.xml"/>
+      <outline type="rss" text="Marc Brooker" xmlUrl="https://brooker.co.za/blog/rss.xml"
+               htmlUrl="https://brooker.co.za/blog/"/>
+      <outline type="rss" text="ACM Queue" xmlUrl="https://queue.acm.org/rss/feeds/queuecontent.xml"
+               htmlUrl="https://queue.acm.org/"/>
+      <outline type="rss" text="Brendan Gregg" xmlUrl="https://www.brendangregg.com/blog/rss.xml"
+               htmlUrl="https://www.brendangregg.com/blog/"/>
     </outline>
     <outline text="Ruby / Rails">
-      <outline type="rss" text="This Week in Rails" xmlUrl="https://rubyonrails.org/feed.xml"/>
-      <outline type="rss" text="Evil Martians" xmlUrl="https://evilmartians.com/chronicles.atom"/>
+      <outline type="rss" text="This Week in Rails" xmlUrl="https://rubyonrails.org/feed.xml"
+               htmlUrl="https://rubyonrails.org/blog"/>
+      <outline type="rss" text="Evil Martians" xmlUrl="https://evilmartians.com/chronicles.atom"
+               htmlUrl="https://evilmartians.com/chronicles"/>
     </outline>
     <outline text="Frontend">
-      <outline type="rss" text="Josh W. Comeau" xmlUrl="https://www.joshwcomeau.com/rss.xml"/>
-      <outline type="rss" text="Overreacted (Dan Abramov)" xmlUrl="https://overreacted.io/rss.xml"/>
+      <outline type="rss" text="Josh W. Comeau" xmlUrl="https://www.joshwcomeau.com/rss.xml"
+               htmlUrl="https://www.joshwcomeau.com/"/>
+      <outline type="rss" text="Overreacted (Dan Abramov)" xmlUrl="https://overreacted.io/rss.xml"
+               htmlUrl="https://overreacted.io/"/>
     </outline>
     <!-- Wednesday's track is deliberately NOT a feed. Its sources are books, research and
          people, and a feed would turn a competence track into a news cycle. -->

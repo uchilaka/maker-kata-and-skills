@@ -35,3 +35,14 @@ A concrete act, logged. Sponsorship you did is staff evidence.
 
 Minda Harts, *The Memo* · Ruchika Tulshyan, *Inclusion on Purpose* · Kapor Center
 research · *Blacks In Technology* podcast · Karla Monterroso · Erica Joy Baker.
+
+## Links
+
+Read by `/kata-today`: `scan:` links open with the Scan block, `depth:` links with Depth.
+Add a mode after the block (`depth/structural:`) to open it only in that mode.
+
+- scan: [Kapor Center](https://www.kaporcenter.org/)
+- scan: [Project Include](https://projectinclude.org/)
+- scan: [NCWIT](https://ncwit.org/)
+- depth/structural: [Kapor Center — research](https://www.kaporcenter.org/)
+- depth/structural: [Leaky Tech Pipeline](https://leakytechpipeline.com/)
