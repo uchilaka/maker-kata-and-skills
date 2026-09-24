@@ -13,6 +13,9 @@ version, not what the diff did.
 - `bin/kata` — `--prepare`, interactive run, `--review`, `--dry-run`.
 - `bin/mount-skills` — links skills into `~/.claude/skills`, never clobbering.
 - `bin/install` / `bin/worktree-init` — machine wiring and git-crypt-safe worktrees.
+- `/kata-today` — a run menu that launches each practice block, with catch-ups first.
+  It ships a signed Apple Journal Shortcut (`skills/kata-today/shortcuts/`) for voice
+  entries: import it once per Mac instead of building it by hand.
 - `.githooks/pre-commit` — refuses staged key material and plaintext on a tier-1 path.
 - Skills: `pro-voice`, `kata-init`, `kata-release`.
 - Katas: `read-a-subsystem`, `explain-it-to-a-twelve-year-old`. Tracks: systems, identity.

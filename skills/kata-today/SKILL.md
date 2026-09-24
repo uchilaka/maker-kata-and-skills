@@ -49,14 +49,26 @@ Then save the answers:
 $H config journal_app "Journal"                 # or: none
 $H config journal_url "notion://www.notion.so/…"  # only if a deep link applies
 $H config journal_blocks scan depth artifact signal
-$H config voice_shortcut "Kata Voice"           # a Shortcut wins over voice_url/voice_app
+$H config voice_shortcut "Create Audio Journal Entry"  # a Shortcut wins over voice_url/voice_app
 $H config voice_app "Journal"
 ```
 
-**For the Shortcut,** walk the user through making it; you can't create it for them.
-In Shortcuts.app: **+**, name it exactly as configured, add Journal's audio-entry
-action, and save. Confirm with `shortcuts list | grep -x "Kata Voice"`. Until it exists,
-`launch --voice` says so and opens nothing.
+**For the Shortcut,** import the one shipped with this skill instead of building it.
+It holds one action, Journal's `CreateEntryAudioIntent`, and needs macOS 26 or iOS 18.1+:
+
+```sh
+open "skills/kata-today/shortcuts/Create Audio Journal Entry.shortcut"   # then: Add Shortcut
+shortcuts list | grep -x "Create Audio Journal Entry"                   # confirm
+```
+
+Keep the imported name, or set `voice_shortcut` to whatever it was renamed to. Until
+the named Shortcut exists, `launch --voice` says so and opens nothing.
+
+If the import fails, build it by hand: **+**, add Journal's *Create Audio Entry*, and
+name it to match `voice_shortcut`. The action can be missing from the Apps list and
+from search even when Journal is installed. It still appears once added. The file's
+signature expires 2027-10-21; re-export it from Shortcuts (Share → Export File →
+Anyone) before a release past that date.
 
 Settings are per machine, in `config/kata-today.local.yml`, which is gitignored. The work
 laptop doesn't have to match the personal one. If the user picks *None* for the journal,
