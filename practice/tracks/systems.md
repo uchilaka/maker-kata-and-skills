@@ -14,3 +14,12 @@ Distributed systems, data, failure modes. Study day: new input, no rep.
 
 Designing Data-Intensive Applications · AWS Builders' Library · Marc Brooker ·
 ACM Queue · Papers We Love · Brendan Gregg for methodology.
+
+## Links
+
+Read by `/kata-today`: `scan:` links open with the Scan block, `depth:` links with Depth.
+
+- scan: [AWS Builders' Library](https://aws.amazon.com/builders-library/)
+- scan: [Marc Brooker](https://brooker.co.za/blog/)
+- scan: [ACM Queue](https://queue.acm.org/)
+- depth: [Papers We Love](https://paperswelove.org/)
