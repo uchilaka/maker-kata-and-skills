@@ -15,6 +15,11 @@ version, not what the diff did.
 - `bin/install` / `bin/worktree-init` — machine wiring and git-crypt-safe worktrees.
 - `.githooks/pre-commit` — refuses staged key material and plaintext on a tier-1 path.
 - Skills: `pro-voice`, `kata-init`, `kata-release`.
+- Skill: `make-design-system` — adapts one of 68 curated `DESIGN.md` inspirations into an
+  original design system for Claude Design. The catalog is vendored from
+  VoltAgent/awesome-claude-design (MIT) and regenerated with `scripts/build-catalog`;
+  `scripts/check-design-md` catches dangling token references, missing sections and
+  surviving source brand names offline.
 - Katas: `read-a-subsystem`, `explain-it-to-a-twelve-year-old`. Tracks: systems, identity.
 - Licensing: Apache-2.0 (code), CC BY 4.0 (prose), all rights reserved (`log/`).
 - Markdown linting: one `.markdownlint-cli2.yaml` read by both the CLI and the VS Code

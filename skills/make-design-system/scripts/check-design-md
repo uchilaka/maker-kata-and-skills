@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# scripts/check-design-md <DESIGN.md> [source-brand-name]...
+#
+# Offline structural check for an adapted DESIGN.md. Exits non-zero on any failure.
+#
+#   1. Every {group.token} reference in the file resolves to a token defined in the YAML
+#      front matter. Adapting a system means renaming tokens, and a dangling reference is
+#      the failure that survives a read-through — it looks like a value, not an error.
+#   2. No source brand name survives, case-insensitively. An adapted system that still
+#      says "Linear lavender" is a clone with a new filename.
+#
+# Not a substitute for Google's `npx @google/design.md lint`, which validates the schema;
+# that one runs third-party code, so the skill asks before using it.
+
+set -euo pipefail
+
+FILE="${1:?usage: check-design-md <DESIGN.md> [source-brand-name]...}"; shift
+fail=0
+
+# Front matter is the first --- ... --- block. A token is a two-space-indented key under a
+# top-level key: "colors:\n  primary: ..." defines colors.primary.
+defined=$(awk '
+  NR == 1 && /^---$/ { fm = 1; next }
+  fm && /^---$/      { exit }
+  fm && /^[A-Za-z][A-Za-z0-9_-]*:/ { g = $0; sub(/:.*/, "", g); next }
+  fm && /^  [A-Za-z0-9_-]+:/ { k = $0; sub(/^  /, "", k); sub(/:.*/, "", k); print g "." k }
+' "$FILE" | sort -u)
+
+[ -n "$defined" ] || { echo "FAIL no front-matter tokens found — is the --- block first?"; exit 1; }
+
+# Two upstream conventions that are not errors: prose cites {component.x} for tokens
+# defined under `components:`, and "{token.refs}" appears literally in Iteration Guides
+# as the name of the convention itself.
+missing=$(grep -oE '\{[a-z][a-z0-9_-]*\.[A-Za-z0-9_-]+\}' "$FILE" | tr -d '{}' \
+  | sed 's/^component\./components./' | grep -vx 'token\.refs' | sort -u \
+  | comm -23 - <(printf '%s\n' "$defined") || true)
+if [ -n "$missing" ]; then
+  echo "FAIL undefined token references:"; printf '  %s\n' $missing; fail=1
+else
+  echo "ok   token references resolve ($(printf '%s\n' "$defined" | wc -l | tr -d ' ') tokens defined)"
+fi
+
+# Upstream files stop after Do's and Don'ts about a third of the time; an adapted one
+# should not inherit the gap. See references/claude-design.md § The file's shape.
+for section in "Overview" "Colors" "Typography" "Layout" "Elevation & Depth" "Shapes" \
+  "Components" "Do's and Don'ts" "Responsive Behavior" "Iteration Guide" "Known Gaps"; do
+  grep -qxF "## $section" "$FILE" || { echo "FAIL missing section: ## $section"; gaps=1; }
+done
+if [ "${gaps:-0}" = 1 ]; then fail=1; else echo "ok   all eleven sections present"; fi
+
+for brand in "$@"; do
+  hits=$(grep -inw -- "$brand" "$FILE" || true)
+  if [ -n "$hits" ]; then
+    echo "FAIL source brand \"$brand\" still present:"; printf '%s\n' "$hits" | sed 's/^/  /' | head -10; fail=1
+  else
+    echo "ok   no mention of \"$brand\""
+  fi
+done
+
+exit "$fail"
