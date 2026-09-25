@@ -7,6 +7,7 @@
 | `bin/`, and any code in `skills/` | Apache-2.0 — `LICENSE` |
 | `practice/`, `sources/`, `config/`, `README.md`, `INSTALL.md`, skill prose | CC BY 4.0 — `LICENSE-CONTENT` |
 | `log/`, `journal/` | All rights reserved — `log/LICENSE` |
+| `skills/make-design-system/references/catalog.md`, `claude-design.md` | MIT, third-party — derived from VoltAgent/awesome-claude-design; notice in `UPSTREAM-LICENSE` beside them |
 
 ## Why three and not one
 

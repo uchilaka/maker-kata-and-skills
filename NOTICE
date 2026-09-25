@@ -9,5 +9,8 @@ Licensed under the Apache License, Version 2.0 (see LICENSE), EXCEPT:
     skills/*/SKILL.md) is licensed under CC BY 4.0 — see LICENSE-CONTENT.
   - log/ and journal/ are ALL RIGHTS RESERVED and are not covered by either grant.
     See log/LICENSE.
+  - skills/make-design-system/references/{catalog,claude-design}.md are derived
+    from VoltAgent/awesome-claude-design, Copyright (c) 2026 VoltAgent, under the
+    MIT License — see skills/make-design-system/references/UPSTREAM-LICENSE.
 
 See LICENSING.md for why the split exists.
