@@ -82,16 +82,45 @@ done
 if [ "${1:-}" = "--online" ]; then
   echo "upstream drift (online)"
   RAW=https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md
-  n=$(curl -fsSL "$RAW/ferrari/DESIGN.md" | grep -c 'shadow.small')
-  if [ "${n:-0}" -ge 1 ]; then pass "ferrari still ships {shadow.small} (R5b stays testable)"
-  else fail "ferrari no longer ships {shadow.small}: R5b needs a new broken source"; fi
-  n=$(curl -fsSL "$RAW/vercel/DESIGN.md" | grep -c '^## ')
-  if [ "$n" = 8 ]; then pass "vercel still stops at 8 sections (R5a stays testable)"
-  else fail "vercel now has $n sections: R5a needs a new short source"; fi
-  bad=$(grep -oE '^\| .* \| `[^`]+`' "$SKILL/references/catalog.md" | grep -oE '`[^`]+`$' | tr -d '`' \
-    | xargs -P 8 -I{} sh -c 'c=$(curl -s -o /dev/null -w "%{http_code}" "'"$RAW"'/{}/DESIGN.md"); [ "$c" = 200 ] || echo "{} $c"')
-  if [ -z "$bad" ]; then pass "every catalog slug resolves"
-  else fail "catalog slugs that no longer resolve (rebuild the catalog):" "$bad"; fi
+  CURL=(curl -fsSL --max-time 20 --proto =https)
+  # Fetch to a file before grepping: a failed fetch must read as "network", not as
+  # "upstream dropped the section" — those send you to very different fixes.
+  online=1
+  for src in ferrari vercel; do
+    "${CURL[@]}" "$RAW/$src/DESIGN.md" -o "$TMP/$src.md" \
+      || { fail "could not fetch $src (network or rate limit, not drift)"; online=0; }
+  done
+  if [ -s "$TMP/ferrari.md" ]; then
+    if grep -q 'shadow.small' "$TMP/ferrari.md"; then pass "ferrari still ships {shadow.small} (R5b stays testable)"
+    else fail "ferrari no longer ships {shadow.small}: R5b needs a new broken source"; fi
+  fi
+  if [ -s "$TMP/vercel.md" ]; then
+    n=$(grep -c '^## ' "$TMP/vercel.md")
+    if [ "$n" = 8 ]; then pass "vercel still stops at 8 sections (R5a stays testable)"
+    else fail "vercel now has $n sections: R5a needs a new short source"; fi
+  fi
+
+  # Slugs come from list-catalog's table (column 4), not a second hand-written regex.
+  slugs=$("$SKILL/scripts/list-catalog" | awk -F'|' 'NR > 4 { gsub(/[ `]/, "", $4); print $4 }')
+  total=$("$SKILL/scripts/list-catalog" | awk 'NR == 1 { print $1 }')
+  unsafe=$(printf '%s\n' "$slugs" | grep -vE '^[A-Za-z0-9._-]+$')
+  if [ "$online" = 0 ]; then
+    fail "slug probe skipped: the network is down, so every slug would read as missing"
+  elif [ -z "$slugs" ] || [ "$(printf '%s\n' "$slugs" | wc -l | tr -d ' ')" != "$total" ]; then
+    fail "slug probe: extracted $(printf '%s\n' "$slugs" | grep -c .) slugs, catalog lists $total"
+  elif [ -n "$unsafe" ]; then
+    fail "slug probe: catalog holds slugs that are not plain path segments (not probed):" "$unsafe"
+  else
+    # The slug is passed as an argument ($1), never pasted into the script text, and the
+    # list is NUL-separated so xargs does not interpret quotes in it.
+    bad=$(printf '%s\n' "$slugs" | tr '\n' '\0' | xargs -0 -P 8 -n 1 sh -c \
+      'c=$(curl -s --max-time 15 --proto =https -o /dev/null -w "%{http_code}" "$0/$1/DESIGN.md"); [ "$c" = 200 ] || printf "%s %s\n" "$1" "$c"' \
+      "$RAW")
+    rc=$?
+    if [ "$rc" -ne 0 ]; then fail "slug probe itself errored (exit $rc)" "$bad"
+    elif [ -z "$bad" ]; then pass "all $total catalog slugs resolve"
+    else fail "catalog slugs that no longer resolve (rebuild the catalog):" "$bad"; fi
+  fi
 fi
 
 echo
