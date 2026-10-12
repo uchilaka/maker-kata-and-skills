@@ -52,17 +52,27 @@ refuse() {
 }
 
 echo "good fixtures"
-# fixture : source brand names that must not survive in it
-while IFS=: read -r name brands; do
+# fixture : component pairs check-contrast must check : source brands that must not survive
+#
+# The pair count is asserted, not just the exit status. A checker that quietly stops
+# checking some pairs still exits 0: breaking state-variant inheritance dropped R1 from
+# 60 to 58 and nothing noticed. A change that legitimately alters a count updates it here.
+#
+# Two rules are covered only by this data, so keep it: R1's disabled button (3.42:1 in
+# dark mode) is the -disabled exemption, and R5b's two canvases are the multi-canvas warn.
+while IFS=: read -r name pairs brands; do
   # shellcheck disable=SC2086 # brands is a deliberate word list
   expect 0 "$name check-design-md" "$SKILL/scripts/check-design-md" "$FIX/$name.DESIGN.md" $brands
-  expect 0 "$name check-contrast" "$SKILL/scripts/check-contrast" "$FIX/$name.DESIGN.md"
+  out=$("$SKILL/scripts/check-contrast" "$FIX/$name.DESIGN.md" 2>&1); got=$?
+  if [ "$got" -eq 0 ] && printf '%s\n' "$out" | grep -q "^ok   $pairs component pairs"; then
+    pass "$name check-contrast ($pairs pairs)"
+  else fail "$name check-contrast (exit $got, want 0 with $pairs pairs)" "$out"; fi
 done <<'EOF'
-R1:Notion Linear
-R3:Stripe
-R4:Notion Linear
-R5a:Vercel Geist
-R5b:Ferrari
+R1:60:Notion Linear
+R3:17:Stripe
+R4:31:Notion Linear
+R5a:21:Vercel Geist
+R5b:28:Ferrari
 EOF
 
 echo "known-bad mutants (each must fail)"
@@ -109,6 +119,14 @@ refuse "-on-light text is checked on canvas-light only" "link-on-light (light): 
 canvas_case on-dark-variant link-on-dark-hover "#444444"
 refuse "a state variant of -on-dark keeps the dark canvas" "link-on-dark-hover (light): text on canvas-dark" \
   "$SKILL/scripts/check-contrast" "$TMP/on-dark-variant.md"
+
+echo "check-contrast failure paths (hand-written cases)"
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  card:\n    rounded: 8px\n---\n' > "$TMP/no-pairs.md"
+refuse "a file with no text pairs fails, not passes" "no component text/background pairs" \
+  "$SKILL/scripts/check-contrast" "$TMP/no-pairs.md"
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  label:\n    textColor: "{colors.ghost}"\n---\n' > "$TMP/undefined.md"
+refuse "a reference to an undefined colour fails" "colors.ghost is not defined" \
+  "$SKILL/scripts/check-contrast" "$TMP/undefined.md"
 
 echo "list-catalog"
 count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
