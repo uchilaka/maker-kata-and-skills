@@ -83,6 +83,33 @@ mutant low-contrast 's/^  on-primary: "#FFFFFF"$/  on-primary: "#5A8C74"/' \
 mutant dark-parity '/^  overlay: "#000000"$/d' \
   && refuse "colors-dark missing a key" "missing in colors-dark: overlay" "$SKILL/scripts/check-contrast" "$TMP/dark-parity.md"
 
+echo "check-contrast canvas pick (hand-written cases)"
+# No saved output defines both canvas-light and canvas-dark, so the exact-pick rule had
+# no test: disabling it still passed. These cases fail or warn if the pick regresses.
+canvas_case() { # canvas_case <name> <component> <text hex>
+  cat > "$TMP/$1.md" <<CASE
+---
+colors:
+  canvas-light: "#FFFFFF"
+  canvas-dark: "#111111"
+  text: "$3"
+components:
+  $2:
+    textColor: "{colors.text}"
+---
+CASE
+}
+canvas_case on-dark-pass link-on-dark "#EEEEEE"
+out=$("$SKILL/scripts/check-contrast" "$TMP/on-dark-pass.md" 2>&1)
+if [ $? -eq 0 ] && ! printf '%s\n' "$out" | grep -q '^warn'; then pass "-on-dark text is checked on canvas-dark only"
+else fail "-on-dark text was not checked on canvas-dark alone" "$out"; fi
+canvas_case on-light-fail link-on-light "#EEEEEE"
+refuse "-on-light text is checked on canvas-light only" "link-on-light (light): text on canvas-light" \
+  "$SKILL/scripts/check-contrast" "$TMP/on-light-fail.md"
+canvas_case on-dark-variant link-on-dark-hover "#444444"
+refuse "a state variant of -on-dark keeps the dark canvas" "link-on-dark-hover (light): text on canvas-dark" \
+  "$SKILL/scripts/check-contrast" "$TMP/on-dark-variant.md"
+
 echo "list-catalog"
 count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
 for case in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do

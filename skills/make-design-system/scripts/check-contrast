@@ -14,7 +14,7 @@
 #     exactly, and every pair is checked again with its values.
 #   - A missing or `transparent` background sits on a canvas, not on black (Google's
 #     linter reads it as black and reports false failures). Which canvas: a name ending
-#     `-on-light` / `-on-dark` picks `canvas-light` / `canvas-dark` when defined; otherwise
+#     segment `-on-light` / `-on-dark` picks `canvas-light` / `canvas-dark` when defined; otherwise
 #     every `canvas*` token is tried. Failing on all of them fails; failing on some is a
 #     warn, because a file with a dark landing page and a light app (R5b) can't say from
 #     the tokens alone which one a `transparent` component lands on.
@@ -100,7 +100,10 @@ def inherited(components, name, prop):
 def canvases(palette, name):
     """The canvas tokens a transparent component could be sitting on."""
     for suffix in ("light", "dark"):
-        if name.endswith(f"-on-{suffix}") and f"canvas-{suffix}" in palette:
+        # A whole-segment match, so `link-on-dark-hover` picks the dark canvas too. An
+        # endswith() check missed it, fell back to every canvas, and turned a real fail
+        # into a warn.
+        if f"-on-{suffix}-" in f"{name}-" and f"canvas-{suffix}" in palette:
             return [f"canvas-{suffix}"]
     return [k for k in palette if k == "canvas" or k.startswith("canvas-")] or ["canvas"]
 
