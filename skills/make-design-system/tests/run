@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# tests/run [--online]
+#
+# Tier-1 regression checks for /make-design-system: everything that can be checked
+# without running a model. Exit 0 = every check behaved as expected.
+#
+#   - Good fixtures: real outputs saved from the 2026-09/10 validation runs (R1, R3, R4,
+#     R5a, R5b) must pass `check-design-md` and `check-contrast`.
+#   - Known-bad mutants: each good fixture is broken one way on purpose, and the matching
+#     check must FAIL. A harness that only ever says "pass" proves nothing; these prove it
+#     can say "fail".
+#   - `list-catalog` returns fixed counts against the vendored catalog.
+#   - --online adds upstream-drift probes. They hit the network, and a failure there
+#     means upstream moved, not that the skill broke, so they are opt-in.
+#
+# The behavioural checks (did it ask before writing, was the report three lines) need a
+# model, and live in the tier-2 evals instead.
+
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SKILL="$(dirname "$HERE")"
+FIX="$HERE/fixtures"
+TMP="$(mktemp -d)"
+trap 'rm -r "$TMP"' EXIT
+
+fails=0
+pass() { printf '  PASS  %s\n' "$1"; }
+fail() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; fails=$((fails + 1)); }
+
+# expect <0|1> <label> <command...>: run the command, compare its exit status.
+expect() {
+  local want=$1 label=$2; shift 2
+  local out; out=$("$@" 2>&1); local got=$?
+  [ "$got" -ne 0 ] && got=1
+  if [ "$got" -eq "$want" ]; then pass "$label"; else fail "$label (exit $got, want $want)" "$out"; fi
+}
+
+echo "good fixtures"
+# fixture : source brand names that must not survive in it
+while IFS=: read -r name brands; do
+  # shellcheck disable=SC2086 # brands is a deliberate word list
+  expect 0 "$name check-design-md" "$SKILL/scripts/check-design-md" "$FIX/$name.DESIGN.md" $brands
+  expect 0 "$name check-contrast" "$SKILL/scripts/check-contrast" "$FIX/$name.DESIGN.md"
+done <<'EOF'
+R1:Notion Linear
+R3:Stripe
+R4:Notion Linear
+R5a:Vercel Geist
+R5b:Ferrari
+EOF
+
+echo "known-bad mutants (each must fail)"
+mutant() { # mutant <name> <sed expression>: R1 with one deliberate break
+  sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md"
+  cmp -s "$FIX/R1.DESIGN.md" "$TMP/$1.md" && { fail "mutant $1 did not change the fixture"; return 1; }
+  return 0
+}
+mutant dangling-ref 's/^- \*\*Moss\*\* ({colors\.primary})/- **Moss** ({colors.not-a-token})/' \
+  && expect 1 "dangling {colors.*} reference" "$SKILL/scripts/check-design-md" "$TMP/dangling-ref.md"
+mutant brand-survives '/^## Overview$/a\
+Inspired by Linear.' \
+  && expect 1 "surviving source brand" "$SKILL/scripts/check-design-md" "$TMP/brand-survives.md" Linear
+mutant missing-section 's/^## Shapes$/## Geometry/' \
+  && expect 1 "missing section" "$SKILL/scripts/check-design-md" "$TMP/missing-section.md"
+mutant low-contrast 's/^  on-primary: "#FFFFFF"$/  on-primary: "#5A8C74"/' \
+  && expect 1 "text on accent below 4.5:1" "$SKILL/scripts/check-contrast" "$TMP/low-contrast.md"
+mutant dark-parity '/^  overlay: "#000000"$/d' \
+  && expect 1 "colors-dark missing a key" "$SKILL/scripts/check-contrast" "$TMP/dark-parity.md"
+
+echo "list-catalog"
+count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
+for case in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
+  want=${case%%:*} words=${case#*:}
+  # shellcheck disable=SC2086 # words is a deliberate word list
+  got=$(count $words)
+  if [ "$got" = "$want" ]; then pass "list-catalog '$words' = $want"; else fail "list-catalog '$words' = $got, want $want"; fi
+done
+
+if [ "${1:-}" = "--online" ]; then
+  echo "upstream drift (online)"
+  RAW=https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md
+  n=$(curl -fsSL "$RAW/ferrari/DESIGN.md" | grep -c 'shadow.small')
+  if [ "${n:-0}" -ge 1 ]; then pass "ferrari still ships {shadow.small} (R5b stays testable)"
+  else fail "ferrari no longer ships {shadow.small}: R5b needs a new broken source"; fi
+  n=$(curl -fsSL "$RAW/vercel/DESIGN.md" | grep -c '^## ')
+  if [ "$n" = 8 ]; then pass "vercel still stops at 8 sections (R5a stays testable)"
+  else fail "vercel now has $n sections: R5a needs a new short source"; fi
+  bad=$(grep -oE '^\| .* \| `[^`]+`' "$SKILL/references/catalog.md" | grep -oE '`[^`]+`$' | tr -d '`' \
+    | xargs -P 8 -I{} sh -c 'c=$(curl -s -o /dev/null -w "%{http_code}" "'"$RAW"'/{}/DESIGN.md"); [ "$c" = 200 ] || echo "{} $c"')
+  if [ -z "$bad" ]; then pass "every catalog slug resolves"
+  else fail "catalog slugs that no longer resolve (rebuild the catalog):" "$bad"; fi
+fi
+
+echo
+if [ "$fails" -eq 0 ]; then echo "all checks behaved as expected"; else echo "$fails check(s) failed"; fi
+exit $((fails > 0))

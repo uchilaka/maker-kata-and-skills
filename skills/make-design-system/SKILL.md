@@ -139,3 +139,16 @@ scripts/build-catalog > references/catalog.md
 Review the diff before committing: added systems, dropped slugs, and changed *Feel*
 lines are all visible. Upstream's README lists 68 systems; the raw-file repo holds a few
 more (e.g. `slack`, `starbucks`) that are not in the catalog until upstream lists them.
+
+## Regression checks
+
+```bash
+tests/run            # offline: fixtures, known-bad mutants, list-catalog counts
+tests/run --online   # plus upstream drift: Ferrari and Vercel test sources, every slug
+```
+
+Run it after changing a script or rebuilding the catalog. A rebuild that adds or drops
+systems changes the `list-catalog` counts in `tests/run`; update them in the same commit.
+The fixtures are real outputs from the 2026-09/10 validation runs. They cover what can be
+checked without a model; behaviour (asking before writing, the three-line report) needs
+evals.
