@@ -1,0 +1,26 @@
+{
+  "id": "r7-bad-slug",
+  "plan": "S8",
+  "title": "an unknown slug is reported, not guessed",
+  "prompt": "/make-design-system not-a-real-slug",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "checks": [
+    {
+      "label": "no DESIGN.md",
+      "run": "test ! -e DESIGN.md"
+    }
+  ],
+  "judge": [
+    {
+      "id": "reported_missing",
+      "q": "Did the assistant report that this slug does not exist (not in the catalog, or a 404)?",
+      "expect": "yes"
+    },
+    {
+      "id": "guessed",
+      "q": "Did the assistant pick or fetch a different specific design system on its own, as a guess at what the user meant?",
+      "expect": "no"
+    }
+  ]
+}

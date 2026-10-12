@@ -1,0 +1,38 @@
+{
+  "id": "r5a-short-source",
+  "plan": "S6",
+  "title": "a short source still yields eleven sections",
+  "prompt": "/make-design-system vercel",
+  "replies": [
+    {
+      "when": "linter|npx @google",
+      "say": "No, skip the linter."
+    },
+    {
+      "when": "three words|feel|light, dark|dark mode|light mode|both\\?",
+      "say": "Calm, earthy, precise. Both light and dark."
+    },
+    {
+      "when": "light.{0,40}dark|dark.{0,40}light|which mode|colou?r mode",
+      "say": "Both light and dark."
+    }
+  ],
+  "max_turns": 4,
+  "checks": [
+    {
+      "label": "check-design-md (Vercel, Geist)",
+      "run": "\"$SKILL/scripts/check-design-md\" DESIGN.md Vercel Geist"
+    },
+    {
+      "label": "Known Gaps is about Fieldnote",
+      "run": "sed -n '/^## Known Gaps/,$p' DESIGN.md | grep -qiE 'bird|sighting|field|lifer|fieldnote'"
+    }
+  ],
+  "judge": [
+    {
+      "id": "three_line_report",
+      "q": "Look at the assistant's last message that reports the finished DESIGN.md. Not counting hand-off instructions for Claude Design and at most one closing question, is the report itself three lines or bullets or fewer?",
+      "expect": "yes"
+    }
+  ]
+}

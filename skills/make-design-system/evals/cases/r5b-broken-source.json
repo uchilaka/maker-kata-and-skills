@@ -1,0 +1,43 @@
+{
+  "id": "r5b-broken-source",
+  "plan": "S6",
+  "title": "an inherited dangling reference is fixed and named",
+  "prompt": "/make-design-system ferrari",
+  "replies": [
+    {
+      "when": "linter|npx @google",
+      "say": "No, skip the linter."
+    },
+    {
+      "when": "three words|feel|light, dark|dark mode|light mode|both\\?",
+      "say": "Calm, earthy, precise. Both light and dark."
+    },
+    {
+      "when": "light.{0,40}dark|dark.{0,40}light|which mode|colou?r mode",
+      "say": "Both light and dark."
+    }
+  ],
+  "max_turns": 4,
+  "checks": [
+    {
+      "label": "check-design-md (Ferrari)",
+      "run": "\"$SKILL/scripts/check-design-md\" DESIGN.md Ferrari"
+    },
+    {
+      "label": "no {shadow.small} left",
+      "run": "! grep -q '{shadow.small}' DESIGN.md"
+    }
+  ],
+  "judge": [
+    {
+      "id": "named_inherited",
+      "q": "Did the assistant tell the user that the source file had a broken or dangling {shadow.small} reference (an upstream problem, not one it introduced)?",
+      "expect": "yes"
+    },
+    {
+      "id": "asked_mode",
+      "q": "BEFORE the first 'TOOL Write' line for DESIGN.md, did the assistant ask the user whether they want light mode, dark mode, or both?",
+      "expect": "yes"
+    }
+  ]
+}

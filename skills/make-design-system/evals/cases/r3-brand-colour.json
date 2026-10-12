@@ -1,0 +1,52 @@
+{
+  "id": "r3-brand-colour",
+  "plan": "S4",
+  "title": "a declared brand colour survives",
+  "prompt": "/make-design-system stripe. Our brand colour is the green in styles/tokens.css. Keep it.",
+  "replies": [
+    {
+      "when": "linter|npx @google",
+      "say": "No, skip the linter."
+    },
+    {
+      "when": "three words|feel|light, dark|dark mode|light mode|both\\?",
+      "say": "Calm, earthy, precise. Both light and dark."
+    },
+    {
+      "when": "light.{0,40}dark|dark.{0,40}light|which mode|colou?r mode",
+      "say": "Both light and dark."
+    }
+  ],
+  "max_turns": 4,
+  "checks": [
+    {
+      "label": "primary is the brand green",
+      "run": "grep -qiE '^  primary: \"?#2F6B4F' DESIGN.md"
+    },
+    {
+      "label": "check-design-md (Stripe)",
+      "run": "\"$SKILL/scripts/check-design-md\" DESIGN.md Stripe"
+    },
+    {
+      "label": "check-contrast",
+      "run": "\"$SKILL/scripts/check-contrast\" DESIGN.md"
+    }
+  ],
+  "judge": [
+    {
+      "id": "skipped_shortlist",
+      "q": "Did the assistant present a shortlist of candidate design systems to choose from?",
+      "expect": "no"
+    },
+    {
+      "id": "contrast_reported",
+      "q": "Did the assistant tell the user a contrast ratio for text on the brand/accent colour?",
+      "expect": "yes"
+    },
+    {
+      "id": "three_line_report",
+      "q": "Look at the assistant's last message that reports the finished DESIGN.md. Not counting hand-off instructions for Claude Design and at most one closing question, is the report itself three lines or bullets or fewer?",
+      "expect": "yes"
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "id": "r7-list",
+  "plan": "S8",
+  "title": "--list prints the scripted filter and stops",
+  "prompt": "/make-design-system --list dark minimal",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "checks": [
+    {
+      "label": "nothing fetched or written",
+      "run": "[ -z \"$(git status --porcelain)\" ]"
+    }
+  ],
+  "judge": [
+    {
+      "id": "count_24",
+      "q": "Does the assistant's reply say that 24 systems match?",
+      "expect": "yes"
+    },
+    {
+      "id": "no_fetch_or_brief",
+      "q": "Did the assistant run a command that downloads a design file (for example curl of a DESIGN.md), or ask the user a question about their brief? A command that was denied or a list it printed does not count.",
+      "expect": "no"
+    }
+  ]
+}

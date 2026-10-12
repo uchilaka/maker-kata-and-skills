@@ -1,0 +1,10 @@
+{
+  "id": "r8-t5",
+  "plan": "S9",
+  "title": "trigger: \"what's a design system?\"",
+  "prompt": "what's a design system?",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "expect_trigger": false,
+  "setup": []
+}

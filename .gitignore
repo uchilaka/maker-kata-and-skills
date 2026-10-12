@@ -13,3 +13,4 @@ config/*.local.yml
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json
+__pycache__/

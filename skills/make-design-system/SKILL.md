@@ -152,5 +152,19 @@ tests/run --online   # plus upstream drift: Ferrari and Vercel test sources, eve
 Run it after changing a script or rebuilding the catalog. A rebuild that adds or drops
 systems changes the `list-catalog` counts in `tests/run`; update them in the same commit.
 The fixtures are real outputs from the 2026-09/10 validation runs. They cover what can be
-checked without a model; behaviour (asking before writing, the three-line report) needs
-evals.
+checked without a model.
+
+Behaviour needs a model: asking before writing, disclosing a blend's split, the
+three-line report, triggering. `evals/run` runs each case as a scripted conversation in
+an isolated, sandboxed copy of a sample project, then checks the files and has a model
+grade the transcript:
+
+```bash
+evals/run --model sonnet           # while developing (about 14 cases)
+evals/run --model opus             # once before merging
+evals/run r4-blend r5b-broken-source   # just the named cases
+```
+
+A case ends PASS, FAIL or INCONCLUSIVE. Inconclusive means the scripted user or the
+harness lost the thread, and it is never a pass. Transcripts are saved under
+`~/.local/state/make-design-system-evals/`, so you can check how a verdict was reached.

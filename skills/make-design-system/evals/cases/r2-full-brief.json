@@ -1,0 +1,31 @@
+{
+  "id": "r2-full-brief",
+  "plan": "S3",
+  "title": "a full brief skips the interview",
+  "prompt": "/make-design-system for Fieldnote: calm, outdoorsy, trustworthy. Light mode only.",
+  "question_ends_run": true,
+  "max_turns": 0,
+  "checks": [
+    {
+      "label": "nothing written before a pick",
+      "run": "test ! -e DESIGN.md"
+    }
+  ],
+  "judge": [
+    {
+      "id": "no_brief_questions",
+      "q": "Before showing candidate design systems, did the assistant ask the user any question about the brief (purpose, audience, feel, light/dark, constraints)?",
+      "expect": "no"
+    },
+    {
+      "id": "three_candidates",
+      "q": "Did the assistant present exactly three candidate design systems?",
+      "expect": "yes"
+    },
+    {
+      "id": "dark_only_unflagged",
+      "q": "Is any candidate described as dark-only or dark-first presented WITHOUT saying it would need inverting or a light mode built for this light-only brief?",
+      "expect": "no"
+    }
+  ]
+}
