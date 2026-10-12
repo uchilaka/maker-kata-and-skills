@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# tests/run [--online]
+#
+# Tier-1 regression checks for /make-design-system: everything that can be checked
+# without running a model. Exit 0 = every check behaved as expected.
+#
+#   - Good fixtures: real outputs saved from the 2026-09/10 validation runs (R1, R3, R4,
+#     R5a, R5b) must pass `check-design-md` and `check-contrast`.
+#   - Known-bad mutants: R1 is broken one way per check, on purpose, and that check must
+#     FAIL for the stated reason. A harness that only ever says "pass" proves nothing;
+#     these prove it can say "fail". Hand-written cases cover what no saved output does.
+#   - `list-catalog` returns fixed counts against the vendored catalog.
+#   - --online adds upstream-drift probes. They hit the network, and a failure there
+#     means upstream moved, not that the skill broke, so they are opt-in.
+#
+# The behavioural checks (did it ask before writing, was the report three lines) need a
+# model, and live in the tier-2 evals instead.
+
+# No -e, unlike the sibling scripts: commands here are expected to fail, and expect() /
+# refuse() record each status. With -e the first deliberate failure would end the run.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+SKILL="$(dirname "$HERE")"
+FIX="$HERE/fixtures"
+TMP="$(mktemp -d)"
+trap 'rm -r "$TMP"' EXIT
+
+fails=0
+pass() { printf '  PASS  %s\n' "$1"; }
+fail() { # fail <label> [detail]: the detail is indented under the label
+  printf '  FAIL  %s\n' "$1"
+  if [ -n "${2:-}" ]; then printf '%s\n' "$2" | sed 's/^/        /'; fi
+  fails=$((fails + 1))
+}
+
+# expect <0|1> <label> <command...>: run the command, compare its exit status.
+expect() {
+  local want=$1 label=$2; shift 2
+  # Declare first, assign after: `local out=$(...)` would make $? the status of `local`.
+  local out got
+  out=$("$@" 2>&1); got=$?
+  [ "$got" -ne 0 ] && got=1
+  if [ "$got" -eq "$want" ]; then pass "$label"; else fail "$label (exit $got, want $want)" "$out"; fi
+}
+
+# refuse <label> <pattern> <command...>: the command must fail AND say why (the pattern).
+# The exit status alone proves nothing for a mutant: a sed that emptied the file, or a
+# Python traceback, also exits 1 and would count as "caught".
+refuse() {
+  local label=$1 pattern=$2; shift 2
+  local out got
+  out=$("$@" 2>&1); got=$?
+  if [ "$got" -eq 0 ]; then fail "$label (exit 0, want a failure)" "$out"
+  elif ! printf '%s\n' "$out" | grep -qF -- "$pattern"; then
+    fail "$label failed for the wrong reason (want: $pattern)" "$out"
+  else pass "$label"; fi
+}
+
+echo "good fixtures"
+# fixture : component pairs check-contrast must check : source brands that must not survive
+#
+# The pair count is asserted, not just the exit status. A checker that quietly stops
+# checking some pairs still exits 0: breaking state-variant inheritance dropped R1 from
+# 60 to 58 and nothing noticed. A change that legitimately alters a count updates it here.
+#
+# Two rules are covered only by this data, so keep it: R1's disabled button (3.42:1 in
+# dark mode) is the -disabled exemption, and R5b's two canvases are the multi-canvas warn.
+while IFS=: read -r name pairs brands; do
+  # shellcheck disable=SC2086 # brands is a deliberate word list
+  expect 0 "$name check-design-md" "$SKILL/scripts/check-design-md" "$FIX/$name.DESIGN.md" $brands
+  out=$("$SKILL/scripts/check-contrast" "$FIX/$name.DESIGN.md" 2>&1); got=$?
+  if [ "$got" -eq 0 ] && printf '%s\n' "$out" | grep -q "^ok   $pairs component pairs"; then
+    pass "$name check-contrast ($pairs pairs)"
+  else fail "$name check-contrast (exit $got, want 0 with $pairs pairs)" "$out"; fi
+done <<'EOF'
+R1:60:Notion Linear
+R3:17:Stripe
+R4:31:Notion Linear
+R5a:21:Vercel Geist
+R5b:28:Ferrari
+EOF
+
+echo "known-bad mutants (each must fail)"
+# TODO(LAR-408): only R1 is mutated; add mutants of other fixtures where R1 can't reach.
+# mutant <name> <sed expression>: R1 with one deliberate break
+mutant() {
+  sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md" || { fail "mutant $1: sed rejected the expression"; return 1; }
+  cmp -s "$FIX/R1.DESIGN.md" "$TMP/$1.md" && { fail "mutant $1 did not change the fixture"; return 1; }
+  return 0
+}
+mutant dangling-ref 's/^- \*\*Moss\*\* ({colors\.primary})/- **Moss** ({colors.not-a-token})/' \
+  && refuse "dangling {colors.*} reference" "colors.not-a-token" "$SKILL/scripts/check-design-md" "$TMP/dangling-ref.md"
+mutant brand-survives '/^## Overview$/a\
+Inspired by Linear.' \
+  && refuse "surviving source brand" 'source brand "Linear" still present' "$SKILL/scripts/check-design-md" "$TMP/brand-survives.md" Linear
+mutant missing-section 's/^## Shapes$/## Geometry/' \
+  && refuse "missing section" "missing section: ## Shapes" "$SKILL/scripts/check-design-md" "$TMP/missing-section.md"
+mutant low-contrast 's/^  on-primary: "#FFFFFF"$/  on-primary: "#5A8C74"/' \
+  && refuse "text on accent below 4.5:1" "on-primary on primary" "$SKILL/scripts/check-contrast" "$TMP/low-contrast.md"
+mutant dark-parity '/^  overlay: "#000000"$/d' \
+  && refuse "colors-dark missing a key" "missing in colors-dark: overlay" "$SKILL/scripts/check-contrast" "$TMP/dark-parity.md"
+
+echo "check-contrast canvas pick (hand-written cases)"
+# No saved output defines both canvas-light and canvas-dark, so the exact-pick rule had
+# no test: disabling it still passed. These cases fail or warn if the pick regresses.
+canvas_case() { # canvas_case <name> <component> <text hex>
+  cat > "$TMP/$1.md" <<CASE
+---
+colors:
+  canvas-light: "#FFFFFF"
+  canvas-dark: "#111111"
+  text: "$3"
+components:
+  $2:
+    textColor: "{colors.text}"
+---
+CASE
+}
+canvas_case on-dark-pass link-on-dark "#EEEEEE"
+out=$("$SKILL/scripts/check-contrast" "$TMP/on-dark-pass.md" 2>&1)
+if [ $? -eq 0 ] && ! printf '%s\n' "$out" | grep -q '^warn'; then pass "-on-dark text is checked on canvas-dark only"
+else fail "-on-dark text was not checked on canvas-dark alone" "$out"; fi
+canvas_case on-light-fail link-on-light "#EEEEEE"
+refuse "-on-light text is checked on canvas-light only" "link-on-light (light): text on canvas-light" \
+  "$SKILL/scripts/check-contrast" "$TMP/on-light-fail.md"
+canvas_case on-dark-variant link-on-dark-hover "#444444"
+refuse "a state variant of -on-dark keeps the dark canvas" "link-on-dark-hover (light): text on canvas-dark" \
+  "$SKILL/scripts/check-contrast" "$TMP/on-dark-variant.md"
+
+echo "check-contrast failure paths (hand-written cases)"
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  card:\n    rounded: 8px\n---\n' > "$TMP/no-pairs.md"
+refuse "a file with no text pairs fails, not passes" "no component text/background pairs" \
+  "$SKILL/scripts/check-contrast" "$TMP/no-pairs.md"
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  label:\n    textColor: "{colors.ghost}"\n---\n' > "$TMP/undefined.md"
+refuse "a reference to an undefined colour fails" "colors.ghost is not defined" \
+  "$SKILL/scripts/check-contrast" "$TMP/undefined.md"
+
+echo "list-catalog"
+count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
+for spec in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
+  want=${spec%%:*} words=${spec#*:}
+  # shellcheck disable=SC2086 # words is a deliberate word list
+  got=$(count $words)
+  if [ "$got" = "$want" ]; then pass "list-catalog '$words' = $want"; else fail "list-catalog '$words' = $got, want $want"; fi
+done
+
+if [ "${1:-}" = "--online" ]; then
+  echo "upstream drift (online)"
+  RAW=https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md
+  CURL=(curl -fsSL --max-time 20 --proto =https)
+  # Fetch to a file before grepping: a failed fetch must read as "network", not as
+  # "upstream dropped the section" — those send you to very different fixes.
+  online=1
+  for src in ferrari vercel; do
+    "${CURL[@]}" "$RAW/$src/DESIGN.md" -o "$TMP/$src.md" \
+      || { fail "could not fetch $src (network or rate limit, not drift)"; online=0; }
+  done
+  if [ -s "$TMP/ferrari.md" ]; then
+    if grep -q 'shadow.small' "$TMP/ferrari.md"; then pass "ferrari still ships {shadow.small} (R5b stays testable)"
+    else fail "ferrari no longer ships {shadow.small}: R5b needs a new broken source"; fi
+  fi
+  if [ -s "$TMP/vercel.md" ]; then
+    n=$(grep -c '^## ' "$TMP/vercel.md")
+    if [ "$n" = 8 ]; then pass "vercel still stops at 8 sections (R5a stays testable)"
+    else fail "vercel now has $n sections: R5a needs a new short source"; fi
+  fi
+
+  # Slugs come from list-catalog's table (column 4), not a second hand-written regex.
+  slugs=$("$SKILL/scripts/list-catalog" | awk -F'|' 'NR > 4 { gsub(/[ `]/, "", $4); print $4 }')
+  total=$("$SKILL/scripts/list-catalog" | awk 'NR == 1 { print $1 }')
+  unsafe=$(printf '%s\n' "$slugs" | grep -vE '^[A-Za-z0-9._-]+$')
+  if [ "$online" = 0 ]; then
+    fail "slug probe skipped: the network is down, so every slug would read as missing"
+  elif [ -z "$slugs" ] || [ "$(printf '%s\n' "$slugs" | wc -l | tr -d ' ')" != "$total" ]; then
+    fail "slug probe: extracted $(printf '%s\n' "$slugs" | grep -c .) slugs, catalog lists $total"
+  elif [ -n "$unsafe" ]; then
+    fail "slug probe: catalog holds slugs that are not plain path segments (not probed):" "$unsafe"
+  else
+    # The slug is passed as an argument ($1), never pasted into the script text, and the
+    # list is NUL-separated so xargs does not interpret quotes in it.
+    bad=$(printf '%s\n' "$slugs" | tr '\n' '\0' | xargs -0 -P 8 -n 1 sh -c \
+      'c=$(curl -s --max-time 15 --proto =https -o /dev/null -w "%{http_code}" "$0/$1/DESIGN.md"); [ "$c" = 200 ] || printf "%s %s\n" "$1" "$c"' \
+      "$RAW")
+    rc=$?
+    if [ "$rc" -ne 0 ]; then fail "slug probe itself errored (exit $rc)" "$bad"
+    elif [ -z "$bad" ]; then pass "all $total catalog slugs resolve"
+    else fail "catalog slugs that no longer resolve (rebuild the catalog):" "$bad"; fi
+  fi
+fi
+
+echo
+if [ "$fails" -eq 0 ]; then echo "all checks behaved as expected"; else echo "$fails check(s) failed"; fi
+exit $((fails > 0))

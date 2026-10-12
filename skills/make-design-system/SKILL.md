@@ -16,8 +16,10 @@ The output is one file, `DESIGN.md`, at the project root. It adapts a system fro
 turns that file into a full starter package; `references/claude-design.md` covers the
 format, the handoff and the brand caveats. Read it before step 4 the first time.
 
-`--list` prints the catalog's tables, filtered to rows whose *Feel* or category matches
-the given words, and stops. It is a browse, not the start of a run.
+`--list` runs `scripts/list-catalog [words]`, prints its output as-is, and stops. It is a
+browse, not the start of a run. Don't filter or count the catalog by eye: the script keeps
+a row when any word appears in it (name, slug or *Feel*) or in its category, as a
+case-insensitive substring, and its first line is the count.
 
 ## The trap: do not clone
 
@@ -96,12 +98,19 @@ the prose sections.
 
 ```bash
 scripts/check-design-md DESIGN.md "<Source Brand>" ["<Second Brand>"]
+scripts/check-contrast DESIGN.md
 ```
 
-It fails on unresolved `{group.token}` references, missing sections, and any surviving
-source brand name. Some upstream files ship a dangling reference already (Ferrari's
-`{shadow.small}` as of 2026-09-24), so a failure can be inherited, not introduced. Fix it
-either way.
+`check-design-md` fails on unresolved `{group.token}` references, missing sections, and
+any surviving source brand name. Some upstream files ship a dangling reference already
+(Ferrari's `{shadow.small}` as of 2026-09-24), so a failure can be inherited, not
+introduced. Fix it either way.
+
+`check-contrast` checks every component's text/background pair against 4.5:1, in each
+colour mode, and that a `colors-dark` group mirrors `colors` key for key. A palette whose
+swatches all pass can still pair two of them badly on one component. A `warn` means a
+component with no background, or a `transparent` one, fails on one of several canvases:
+say which one it sits on.
 
 Google's schema linter (`npx @google/design.md lint DESIGN.md`, named in upstream's
 Iteration Guides) validates more, but it downloads and runs third-party code. **Offer it,
@@ -132,3 +141,16 @@ scripts/build-catalog > references/catalog.md
 Review the diff before committing: added systems, dropped slugs, and changed *Feel*
 lines are all visible. Upstream's README lists 68 systems; the raw-file repo holds a few
 more (e.g. `slack`, `starbucks`) that are not in the catalog until upstream lists them.
+
+## Regression checks
+
+```bash
+tests/run            # offline: fixtures, known-bad mutants, list-catalog counts
+tests/run --online   # plus upstream drift: Ferrari and Vercel test sources, every slug
+```
+
+Run it after changing a script or rebuilding the catalog. A rebuild that adds or drops
+systems changes the `list-catalog` counts in `tests/run`; update them in the same commit.
+The fixtures are real outputs from the 2026-09/10 validation runs. They cover what can be
+checked without a model; behaviour (asking before writing, the three-line report) needs
+evals.

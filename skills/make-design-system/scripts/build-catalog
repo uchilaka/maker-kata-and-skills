@@ -56,6 +56,9 @@ awk '
   on && /^- \[\*\*/ {
     name = $0; sub(/^- \[\*\*/, "", name); sub(/\*\*\].*/, "", name)
     slug = $0; sub(/.*getdesign\.md\//, "", slug); sub(/\/design-md\).*/, "", slug)
+    # The slug goes into fetch URLs (the model builds them) and into tests/run probes.
+    # It is upstream text, so refuse anything that is not a plain path segment.
+    if (slug !~ /^[A-Za-z0-9._-]+$/) { print "build-catalog: refusing slug: " slug > "/dev/stderr"; exit 1 }
     feel = $0; sub(/^[^)]*\) - /, "", feel); gsub(/\|/, "\\|", feel)
     printf "| %s | `%s` | %s |\n", name, slug, feel
   }

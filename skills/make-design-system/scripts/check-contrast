@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# scripts/check-contrast <DESIGN.md>
+#
+# WCAG text contrast for every component's text/background pair, in every colour mode the
+# file defines. Exits non-zero on any failure.
+#
+# Checking the palette is not enough. R1 (2026-09-26) shipped swatches that all passed and
+# still paired `ink-tertiary` with `surface-3` on the disabled button at 4.21:1, breaking a
+# rule the same file wrote down. Only the pairs that components actually use show that.
+#
+#   - Modes: `colors` is light. A `colors-dark` group, if present, must mirror its keys
+#     exactly, and every pair is checked again with its values.
+#   - A missing or `transparent` background sits on a canvas, not on black (Google's
+#     linter reads it as black and reports false failures). Which canvas: a name ending
+#     segment `-on-light` / `-on-dark` picks `canvas-light` / `canvas-dark` when defined; otherwise
+#     every `canvas*` token is tried. Failing on all of them fails; failing on some is a
+#     warn, because a file with a dark landing page and a light app (R5b) can't say from
+#     the tokens alone which one a `transparent` component lands on.
+#   - A state variant without its own colour (`table-row-hover`) inherits from the longest
+#     component name it extends (`table-row`).
+#   - `*-disabled` components are reported but never fail: WCAG 1.4.3 exempts inactive UI.
+#
+# Stdlib only, so it runs anywhere the skill does. The front-matter reader handles the
+# shape these files use (two-space keys, one level of nesting), not YAML in general.
+
+import re
+import sys
+
+MIN = 4.5
+
+
+def scalar(raw):
+    """A value with its quotes and any trailing `# comment` removed.
+
+    Quotes come off first, so a `#` inside them (a hex colour) is kept. Stripping the
+    comment matters: `"{colors.pale}"  # muted` otherwise matches no token, and the pair
+    used to be skipped in silence while the file reported ok.
+    """
+    raw = raw.strip()
+    m = re.match(r'^"([^"]*)"|^\'([^\']*)\'', raw)
+    if m:
+        return m.group(1) if m.group(1) is not None else m.group(2)
+    return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
+
+
+# TODO(LAR-407): quoted keys, empty colour values, deeper nesting and *-disabled-hover
+# are not handled.
+def front_matter(path):
+    with open(path, encoding="utf-8") as f:
+        lines = f.read().split("\n")
+    if lines[0] != "---":
+        sys.exit("FAIL no front matter — is the --- block first?")
+    groups, group, key = {}, None, None
+    for line in lines[1:]:
+        if line == "---":
+            return groups
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        m = re.match(r"^( *)([A-Za-z0-9_-]+):\s*(.*)$", line)
+        if not m:
+            continue
+        indent, name, value = len(m.group(1)), m.group(2), scalar(m.group(3))
+        if indent == 0:
+            group, key = groups.setdefault(name, {}), None
+        elif indent == 2 and group is not None:
+            key = name
+            # An empty value opens a nested block (a component's properties).
+            group[key] = value if value else {}
+        elif indent == 4 and group is not None and isinstance(group.get(key), dict):
+            group[key][name] = value
+    sys.exit("FAIL front matter never closes")
+
+
+# TODO(LAR-404): rgb()/rgba() palette values crash here, and #RRGGBBAA alpha is ignored.
+def luminance(hex_):
+    h = hex_.lstrip("#")
+    if len(h) == 3:
+        h = "".join(c * 2 for c in h)
+    def channel(c):
+        c = int(c, 16) / 255
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(h[i:i + 2]) for i in (0, 2, 4))
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+def ratio(a, b):
+    hi, lo = sorted((luminance(a), luminance(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
+def inherited(components, name, prop):
+    """The prop's value on this component, or on the longest component it extends."""
+    parts = name.split("-")
+    for i in range(len(parts), 0, -1):
+        value = components.get("-".join(parts[:i]), {}).get(prop)
+        if value:
+            return value
+    return None
+
+
+# TODO(LAR-405): a dark canvas named plain `canvas`, or a non-surface `canvas-*` key,
+# makes this warn when nothing is wrong.
+def canvases(palette, name):
+    """The canvas tokens a transparent component could be sitting on."""
+    for suffix in ("light", "dark"):
+        # A whole-segment match, so `link-on-dark-hover` picks the dark canvas too. An
+        # endswith() check missed it, fell back to every canvas, and turned a real fail
+        # into a warn.
+        if f"-on-{suffix}-" in f"{name}-" and f"canvas-{suffix}" in palette:
+            return [f"canvas-{suffix}"]
+    return [k for k in palette if k == "canvas" or k.startswith("canvas-")] or ["canvas"]
+
+
+def color_key(ref):
+    m = re.fullmatch(r"\{colors\.([A-Za-z0-9_-]+)\}", ref or "")
+    return m.group(1) if m else None
+
+
+HEX = re.compile(r"#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})")
+
+
+def colour(ref):
+    """A colour reference as ("token", key) or ("hex", value), or None if it is neither."""
+    key = color_key(ref)
+    if key:
+        return ("token", key)
+    if HEX.fullmatch(ref or ""):
+        return ("hex", ref)
+    return None
+
+
+def label(c):
+    return c[1]
+
+
+def value(c, palette):
+    return palette.get(c[1]) if c[0] == "token" else c[1]
+
+
+def main(path):
+    fm = front_matter(path)
+    light = fm.get("colors") or {}
+    modes = {"light": light}
+    fail = 0
+
+    if "colors-dark" in fm:
+        dark = fm["colors-dark"]
+        missing, extra = sorted(set(light) - set(dark)), sorted(set(dark) - set(light))
+        if missing or extra:
+            fail = 1
+            print("FAIL colors-dark does not mirror colors:")
+            for k in missing:
+                print(f"  missing in colors-dark: {k}")
+            for k in extra:
+                print(f"  extra in colors-dark:   {k}")
+        else:
+            print(f"ok   colors-dark mirrors colors ({len(light)} keys)")
+        modes["dark"] = dark
+
+    components = {k: v for k, v in (fm.get("components") or {}).items() if isinstance(v, dict)}
+    checked = 0
+    for name in components:
+        text_ref = inherited(components, name, "textColor")
+        if not text_ref:
+            continue  # no text, nothing to read
+        # Every pair that has text is checked or reported. Nothing is skipped in silence.
+        text = colour(text_ref)
+        bg_ref = inherited(components, name, "backgroundColor")
+        if bg_ref in (None, "transparent"):
+            bgs = [("token", k) for k in canvases(light, name)]
+        else:
+            bgs = [colour(bg_ref)] if colour(bg_ref) else []
+        if not text or not bgs:
+            bad = text_ref if not text else bg_ref
+            print(f"FAIL {name}: {bad!r} is neither a {{colors.*}} token nor a hex colour")
+            fail = 1
+            continue
+        for mode, palette in modes.items():
+            undefined = [label(c) for c in [text, *bgs] if value(c, palette) is None]
+            if undefined:
+                print(f"FAIL {name} ({mode}): colors.{undefined[0]} is not defined")
+                fail = 1
+                continue
+            checked += 1
+            results = [(label(bg), ratio(value(text, palette), value(bg, palette))) for bg in bgs]
+            low = [(bg, r) for bg, r in results if r < MIN]
+            if not low:
+                continue
+            pair = ", ".join(f"{label(text)} on {bg} = {r:.2f}:1" for bg, r in low)
+            if name.endswith("-disabled"):
+                print(f"info {name} ({mode}): {pair}, exempt as disabled")
+            elif len(low) < len(results):
+                print(f"warn {name} ({mode}): {pair}; passes on the other canvas")
+            else:
+                print(f"FAIL {name} ({mode}): {pair}, below {MIN}:1")
+                fail = 1
+
+    if checked == 0:
+        print("FAIL no component text/background pairs found to check")
+        return 1
+    if not fail:
+        print(f"ok   {checked} component pairs at or above {MIN}:1 across {', '.join(modes)}")
+    return fail
+
+
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        sys.exit("usage: check-contrast <DESIGN.md>")
+    sys.exit(main(sys.argv[1]))
