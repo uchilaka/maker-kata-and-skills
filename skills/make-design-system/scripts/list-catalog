@@ -16,6 +16,8 @@ set -euo pipefail
 
 CATALOG="$(cd "$(dirname "$0")/.." && pwd)/references/catalog.md"
 
+# TODO(LAR-403): the Feel column is upstream text the model prints as-is; label it as data.
+# TODO(LAR-406): matching is by substring ("ai" hits "email"); decide on whole words.
 awk -v words="$*" '
   BEGIN { n = split(tolower(words), w, /[[:space:]]+/) }
   /^## / { cat = substr($0, 4); next }

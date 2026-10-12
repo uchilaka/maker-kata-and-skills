@@ -84,6 +84,7 @@ R5b:28:Ferrari
 EOF
 
 echo "known-bad mutants (each must fail)"
+# TODO(LAR-408): only R1 is mutated; add mutants of other fixtures where R1 can't reach.
 # mutant <name> <sed expression>: R1 with one deliberate break
 mutant() {
   sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md" || { fail "mutant $1: sed rejected the expression"; return 1; }

@@ -45,6 +45,8 @@ def scalar(raw):
     return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
 
 
+# TODO(LAR-407): quoted keys, empty colour values, deeper nesting and *-disabled-hover
+# are not handled.
 def front_matter(path):
     with open(path, encoding="utf-8") as f:
         lines = f.read().split("\n")
@@ -71,6 +73,7 @@ def front_matter(path):
     sys.exit("FAIL front matter never closes")
 
 
+# TODO(LAR-404): rgb()/rgba() palette values crash here, and #RRGGBBAA alpha is ignored.
 def luminance(hex_):
     h = hex_.lstrip("#")
     if len(h) == 3:
@@ -97,6 +100,8 @@ def inherited(components, name, prop):
     return None
 
 
+# TODO(LAR-405): a dark canvas named plain `canvas`, or a non-surface `canvas-*` key,
+# makes this warn when nothing is wrong.
 def canvases(palette, name):
     """The canvas tokens a transparent component could be sitting on."""
     for suffix in ("light", "dark"):
