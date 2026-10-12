@@ -26,3 +26,6 @@ ignores:
   - "journal/**"
   - "log/**"
   - "sources/private/**"
+  # Saved skill outputs kept byte-for-byte as test inputs. Reformatting one to satisfy
+  # lint would change the very thing the regression suite checks.
+  - "skills/*/tests/fixtures/**"
