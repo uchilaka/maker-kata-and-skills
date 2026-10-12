@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: Apache-2.0
+#
+# scripts/list-catalog [word]...
+#
+# The `--list` mode: print catalog rows where the row (name, slug, Feel) or its category
+# heading contains ANY of the given words, case-insensitively, as one markdown table. No
+# words prints every row.
+#
+# This is a script rather than something the model does by eye, because the model got it
+# wrong: asked for "dark minimal" on 2026-10-12, it announced 21 matches, listed 23, and
+# dropped `meta` ("binary light/dark surfaces") while calling the filter literal. The
+# catalog has 24. A filter whose answer never changes belongs in code.
+
+set -euo pipefail
+
+CATALOG="$(cd "$(dirname "$0")/.." && pwd)/references/catalog.md"
+
+awk -v words="$*" '
+  BEGIN { n = split(tolower(words), w, /[[:space:]]+/) }
+  /^## / { cat = substr($0, 4); next }
+  # Data rows only: "| System | `slug` | Feel |". The header and divider have no backtick.
+  /^\| .* \| `/ {
+    hit = (n == 0)
+    for (i = 1; i <= n && !hit; i++)
+      if (w[i] != "" && index(tolower($0 " " cat), w[i])) hit = 1
+    if (hit) { rows[++count] = "| " cat " " $0 }
+  }
+  END {
+    printf "%d systems match.\n\n", count
+    if (!count) exit
+    print "| Category | System | Slug | Feel |"
+    print "| --- | --- | --- | --- |"
+    for (i = 1; i <= count; i++) print rows[i]
+  }
+' "$CATALOG"
