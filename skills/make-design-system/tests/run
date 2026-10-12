@@ -8,9 +8,9 @@
 #
 #   - Good fixtures: real outputs saved from the 2026-09/10 validation runs (R1, R3, R4,
 #     R5a, R5b) must pass `check-design-md` and `check-contrast`.
-#   - Known-bad mutants: each good fixture is broken one way on purpose, and the matching
-#     check must FAIL. A harness that only ever says "pass" proves nothing; these prove it
-#     can say "fail".
+#   - Known-bad mutants: R1 is broken one way per check, on purpose, and that check must
+#     FAIL for the stated reason. A harness that only ever says "pass" proves nothing;
+#     these prove it can say "fail". Hand-written cases cover what no saved output does.
 #   - `list-catalog` returns fixed counts against the vendored catalog.
 #   - --online adds upstream-drift probes. They hit the network, and a failure there
 #     means upstream moved, not that the skill broke, so they are opt-in.
@@ -18,6 +18,8 @@
 # The behavioural checks (did it ask before writing, was the report three lines) need a
 # model, and live in the tier-2 evals instead.
 
+# No -e, unlike the sibling scripts: commands here are expected to fail, and expect() /
+# refuse() record each status. With -e the first deliberate failure would end the run.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -28,12 +30,18 @@ trap 'rm -r "$TMP"' EXIT
 
 fails=0
 pass() { printf '  PASS  %s\n' "$1"; }
-fail() { printf '  FAIL  %s\n' "$1"; [ -n "${2:-}" ] && printf '%s\n' "$2" | sed 's/^/        /'; fails=$((fails + 1)); }
+fail() { # fail <label> [detail]: the detail is indented under the label
+  printf '  FAIL  %s\n' "$1"
+  if [ -n "${2:-}" ]; then printf '%s\n' "$2" | sed 's/^/        /'; fi
+  fails=$((fails + 1))
+}
 
 # expect <0|1> <label> <command...>: run the command, compare its exit status.
 expect() {
   local want=$1 label=$2; shift 2
-  local out; out=$("$@" 2>&1); local got=$?
+  # Declare first, assign after: `local out=$(...)` would make $? the status of `local`.
+  local out got
+  out=$("$@" 2>&1); got=$?
   [ "$got" -ne 0 ] && got=1
   if [ "$got" -eq "$want" ]; then pass "$label"; else fail "$label (exit $got, want $want)" "$out"; fi
 }
@@ -76,7 +84,8 @@ R5b:28:Ferrari
 EOF
 
 echo "known-bad mutants (each must fail)"
-mutant() { # mutant <name> <sed expression>: R1 with one deliberate break
+# mutant <name> <sed expression>: R1 with one deliberate break
+mutant() {
   sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md" || { fail "mutant $1: sed rejected the expression"; return 1; }
   cmp -s "$FIX/R1.DESIGN.md" "$TMP/$1.md" && { fail "mutant $1 did not change the fixture"; return 1; }
   return 0
@@ -130,8 +139,8 @@ refuse "a reference to an undefined colour fails" "colors.ghost is not defined" 
 
 echo "list-catalog"
 count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
-for case in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
-  want=${case%%:*} words=${case#*:}
+for spec in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
+  want=${spec%%:*} words=${spec#*:}
   # shellcheck disable=SC2086 # words is a deliberate word list
   got=$(count $words)
   if [ "$got" = "$want" ]; then pass "list-catalog '$words' = $want"; else fail "list-catalog '$words' = $got, want $want"; fi

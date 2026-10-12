@@ -16,9 +16,10 @@ The output is one file, `DESIGN.md`, at the project root. It adapts a system fro
 turns that file into a full starter package; `references/claude-design.md` covers the
 format, the handoff and the brand caveats. Read it before step 4 the first time.
 
-`--list` runs `scripts/list-catalog [feel words]`, prints its output as-is, and stops. It
-is a browse, not the start of a run. Don't filter or count the catalog by eye: the script
-matches any word against the row and its category, and its first line is the count.
+`--list` runs `scripts/list-catalog [words]`, prints its output as-is, and stops. It is a
+browse, not the start of a run. Don't filter or count the catalog by eye: the script keeps
+a row when any word appears in it (name, slug or *Feel*) or in its category, as a
+case-insensitive substring, and its first line is the count.
 
 ## The trap: do not clone
 
@@ -108,7 +109,8 @@ introduced. Fix it either way.
 `check-contrast` checks every component's text/background pair against 4.5:1, in each
 colour mode, and that a `colors-dark` group mirrors `colors` key for key. A palette whose
 swatches all pass can still pair two of them badly on one component. A `warn` means a
-`transparent` component fails on one of several canvases: say which one it sits on.
+component with no background, or a `transparent` one, fails on one of several canvases:
+say which one it sits on.
 
 Google's schema linter (`npx @google/design.md lint DESIGN.md`, named in upstream's
 Iteration Guides) validates more, but it downloads and runs third-party code. **Offer it,

@@ -24,10 +24,12 @@ awk -v words="$*" '
     hit = (n == 0)
     for (i = 1; i <= n && !hit; i++)
       if (w[i] != "" && index(tolower($0 " " cat), w[i])) hit = 1
+    # $0 already starts with "| ", so this prepends a Category cell.
     if (hit) { rows[++count] = "| " cat " " $0 }
   }
   END {
-    printf "%d systems match.\n\n", count
+    # The count is the first field: SKILL.md and tests/run both read it from there.
+    printf "%d %s.\n\n", count, (count == 1 ? "system matches" : "systems match")
     if (!count) exit
     print "| Category | System | Slug | Feel |"
     print "| --- | --- | --- | --- |"
