@@ -38,6 +38,19 @@ expect() {
   if [ "$got" -eq "$want" ]; then pass "$label"; else fail "$label (exit $got, want $want)" "$out"; fi
 }
 
+# refuse <label> <pattern> <command...>: the command must fail AND say why (the pattern).
+# The exit status alone proves nothing for a mutant: a sed that emptied the file, or a
+# Python traceback, also exits 1 and would count as "caught".
+refuse() {
+  local label=$1 pattern=$2; shift 2
+  local out got
+  out=$("$@" 2>&1); got=$?
+  if [ "$got" -eq 0 ]; then fail "$label (exit 0, want a failure)" "$out"
+  elif ! printf '%s\n' "$out" | grep -qF -- "$pattern"; then
+    fail "$label failed for the wrong reason (want: $pattern)" "$out"
+  else pass "$label"; fi
+}
+
 echo "good fixtures"
 # fixture : source brand names that must not survive in it
 while IFS=: read -r name brands; do
@@ -54,21 +67,21 @@ EOF
 
 echo "known-bad mutants (each must fail)"
 mutant() { # mutant <name> <sed expression>: R1 with one deliberate break
-  sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md"
+  sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md" || { fail "mutant $1: sed rejected the expression"; return 1; }
   cmp -s "$FIX/R1.DESIGN.md" "$TMP/$1.md" && { fail "mutant $1 did not change the fixture"; return 1; }
   return 0
 }
 mutant dangling-ref 's/^- \*\*Moss\*\* ({colors\.primary})/- **Moss** ({colors.not-a-token})/' \
-  && expect 1 "dangling {colors.*} reference" "$SKILL/scripts/check-design-md" "$TMP/dangling-ref.md"
+  && refuse "dangling {colors.*} reference" "colors.not-a-token" "$SKILL/scripts/check-design-md" "$TMP/dangling-ref.md"
 mutant brand-survives '/^## Overview$/a\
 Inspired by Linear.' \
-  && expect 1 "surviving source brand" "$SKILL/scripts/check-design-md" "$TMP/brand-survives.md" Linear
+  && refuse "surviving source brand" 'source brand "Linear" still present' "$SKILL/scripts/check-design-md" "$TMP/brand-survives.md" Linear
 mutant missing-section 's/^## Shapes$/## Geometry/' \
-  && expect 1 "missing section" "$SKILL/scripts/check-design-md" "$TMP/missing-section.md"
+  && refuse "missing section" "missing section: ## Shapes" "$SKILL/scripts/check-design-md" "$TMP/missing-section.md"
 mutant low-contrast 's/^  on-primary: "#FFFFFF"$/  on-primary: "#5A8C74"/' \
-  && expect 1 "text on accent below 4.5:1" "$SKILL/scripts/check-contrast" "$TMP/low-contrast.md"
+  && refuse "text on accent below 4.5:1" "on-primary on primary" "$SKILL/scripts/check-contrast" "$TMP/low-contrast.md"
 mutant dark-parity '/^  overlay: "#000000"$/d' \
-  && expect 1 "colors-dark missing a key" "$SKILL/scripts/check-contrast" "$TMP/dark-parity.md"
+  && refuse "colors-dark missing a key" "missing in colors-dark: overlay" "$SKILL/scripts/check-contrast" "$TMP/dark-parity.md"
 
 echo "list-catalog"
 count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
