@@ -112,7 +112,8 @@ scripts/check-contrast DESIGN.md
 `check-design-md` fails on unresolved `{group.token}` references, missing sections, and
 any surviving source brand name. Some upstream files ship a dangling reference already
 (Ferrari's `{shadow.small}` as of 2026-09-24), so a failure can be inherited, not
-introduced. Fix it either way.
+introduced. Fix it either way, and when the source shipped it, tell the user: name the
+reference and say it came from upstream, so nobody hunts for a bug you didn't write.
 
 `check-contrast` checks every component's text/background pair against 4.5:1, in each
 colour mode, and that a `colors-dark` group mirrors `colors` key for key. A palette whose
