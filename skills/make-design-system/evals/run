@@ -146,6 +146,10 @@ def isolated_from_user_config(events):
     return False
 
 
+ASKING = re.compile(r"tell me|let me know|once you('ve| have) answered|before I (write|adapt|start)"
+                    r"|which (would|do) you|your call|should I", re.I)
+
+
 def converse(case, workdir, model, log):
     """Run the case's scripted conversation. Returns (transcript lines, reason or None)."""
     session = str(uuid.uuid4())
@@ -164,14 +168,16 @@ def converse(case, workdir, model, log):
             break
         text = final_text(events)
         # Reply only to a message that asks something. A finished report that happens to
-        # contain "feel" or "dark mode" must not get a scripted answer.
-        asking = "?" in text[-600:]
+        # contain "feel" or "dark mode" must not get a scripted answer. Questions aren't
+        # always last or always end in "?": runs ask early in a long message and close
+        # with "Tell me if..." or "once you've answered" (2026-11-16).
+        asking = "?" in text or bool(ASKING.search(text))
         rule = None if not asking else next(
             (i for i, r in enumerate(case.get("replies", []))
              if i not in used and re.search(r["when"], text, re.I | re.S)), None)
         if rule is None:
             # A question nobody scripted an answer to: the run can't be graded fairly.
-            if text.rstrip().endswith("?") and not case.get("question_ends_run"):
+            if asking and not case.get("question_ends_run"):
                 return transcript, f"unscripted question: {text.strip()[-160:]!r}"
             return transcript, None
         used.add(rule)
@@ -227,7 +233,7 @@ def check_three_line_report(transcript):
     labels = ["Adapted from:", "Changed:", "File:"]
     if not all(l.lstrip("-* `").startswith(lab) for l, lab in zip(body, labels)) or len(body) < 3:
         return False, f"first lines are not the three labels: {body!r}"[:200]
-    extra = [l for l in lines[start + 3:] if not re.search(r"Claude Design|hand|route|upload|attach|prototype|linter|\?", l, re.I)]
+    extra = [l for l in lines[start + 3:] if not re.search(r"Claude Design|hand|route|upload|attach|prototype|artifact|quickstart|linter|\?", l, re.I)]
     if extra:
         return False, f"report runs on past three lines: {extra[0][:120]!r}"
     return True, "three labelled lines"
