@@ -145,8 +145,9 @@ Changed: <accent, fonts, anything dropped, in one line>
 File: <path>
 ```
 
-Nothing else goes in the report. Decisions, caveats and open questions about the design
-belong in the file's *Known Gaps*, where the next reader will find them. Every validation
+Nothing else goes in the report, including passing checks: a check gets a mention only
+when it failed and you couldn't fix it. Decisions, caveats and open questions about the
+design belong in the file's *Known Gaps*, where the next reader will find them. Every validation
 run so far wrote a longer report, so treat the three lines as a hard limit.
 
 ## Refreshing the catalog
