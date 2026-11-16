@@ -48,7 +48,10 @@ Ask in a single message, and only for what the request and repo don't already te
 - **Fixed constraints**: an existing brand colour, logo, typeface, or a stack
   (Tailwind, CSS variables) the tokens must land in.
 
-If the user named a system or slug, skip to step 3.
+If the user named a system or slug, skip step 2 (the shortlist), not this step: still ask
+whatever the request and the repo leave open. **Light, dark or both** is the one most
+often left open, and the sources often disagree on it (one dark-first, one light). When
+the brief doesn't say, ask; never settle it yourself and mention it afterwards.
 
 ### 2. Shortlist three
 
