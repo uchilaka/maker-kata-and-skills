@@ -136,8 +136,18 @@ and run it only on a yes.**
 - In Claude Code with the Artifact tool, a third route: a Design System Artifact type,
   started with `quickstart` intent `other`, and this `DESIGN.md` as its source material.
 
-Report in three lines: what it's adapted from, what changed (accent, fonts, anything
-dropped), and where the file is.
+Report in **exactly three lines**, then the hand-off routes and at most one question (the
+linter offer, if not yet made):
+
+```text
+Adapted from: <source(s)>
+Changed: <accent, fonts, anything dropped, in one line>
+File: <path>
+```
+
+Nothing else goes in the report. Decisions, caveats and open questions about the design
+belong in the file's *Known Gaps*, where the next reader will find them. Every validation
+run so far wrote a longer report, so treat the three lines as a hard limit.
 
 ## Refreshing the catalog
 
