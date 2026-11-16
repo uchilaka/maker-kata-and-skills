@@ -40,7 +40,8 @@ must be about the user's product.
 
 ### 1. Brief (one round, skip what's already known)
 
-Ask in a single message, and only for what the request and repo don't already tell you:
+Read the README and any token or style files first. Then ask in a single message, and
+only for what the request and repo don't already tell you:
 
 - **What it is and who uses it**: marketing site, dense app, docs, dashboard.
 - **Feel in three words**, e.g. "calm, technical, premium".
