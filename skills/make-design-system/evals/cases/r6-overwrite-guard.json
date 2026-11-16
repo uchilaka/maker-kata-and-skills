@@ -24,7 +24,7 @@
       "say": "Both light and dark."
     }
   ],
-  "max_turns": 3,
+  "max_turns": 1,
   "checks": [
     {
       "label": "DESIGN.md unchanged",
@@ -37,5 +37,6 @@
       "q": "Did the assistant summarise the existing DESIGN.md and ask before replacing it?",
       "expect": "yes"
     }
-  ]
+  ],
+  "question_ends_run": true
 }

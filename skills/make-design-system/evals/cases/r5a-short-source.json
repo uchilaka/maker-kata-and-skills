@@ -28,11 +28,8 @@
       "run": "sed -n '/^## Known Gaps/,$p' DESIGN.md | grep -qiE 'bird|sighting|field|lifer|fieldnote'"
     }
   ],
-  "judge": [
-    {
-      "id": "three_line_report",
-      "q": "Look at the assistant's last message that reports the finished DESIGN.md. Not counting hand-off instructions for Claude Design and at most one closing question, is the report itself three lines or bullets or fewer?",
-      "expect": "yes"
-    }
+  "judge": [],
+  "transcript_checks": [
+    "three_line_report"
   ]
 }

@@ -38,11 +38,9 @@
       "id": "asked_mode",
       "q": "BEFORE the first 'TOOL Write' line for DESIGN.md, did the assistant ask the user whether they want light mode, dark mode, or both?",
       "expect": "yes"
-    },
-    {
-      "id": "three_line_report",
-      "q": "Look at the assistant's last message that reports the finished DESIGN.md. Not counting hand-off instructions for Claude Design and at most one closing question, is the report itself three lines or bullets or fewer?",
-      "expect": "yes"
     }
+  ],
+  "transcript_checks": [
+    "three_line_report"
   ]
 }

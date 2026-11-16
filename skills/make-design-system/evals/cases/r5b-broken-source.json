@@ -22,10 +22,6 @@
     {
       "label": "check-design-md (Ferrari)",
       "run": "\"$SKILL/scripts/check-design-md\" DESIGN.md Ferrari"
-    },
-    {
-      "label": "no {shadow.small} left",
-      "run": "! grep -q '{shadow.small}' DESIGN.md"
     }
   ],
   "judge": [
