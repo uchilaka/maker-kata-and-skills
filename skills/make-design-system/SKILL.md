@@ -106,6 +106,12 @@ the prose sections.
   (Google Fonts). Keep the scale and tracking values; they carry most of the feel.
 - **Prose:** rewrite Overview and every rationale line about the user's product. Drop
   *Source pages* notes. Write your own *Known Gaps*: what this file doesn't decide yet.
+  With a `colors-dark` group, one Known Gaps line says Google's linter and its export
+  commands ignore `colors-dark`, so an export carries light mode only. Claude Design
+  reads it, which is why the file keeps it.
+- **Components:** leave `backgroundColor` out of a component that has no fill, rather
+  than writing `transparent`. Google's linter reads `transparent` as black and reports
+  false contrast failures; `check-contrast` treats a missing background as the canvas.
 - **All eleven sections**, even where the source stopped early. The list is in
   `references/claude-design.md` § *The file's shape*.
 - **Blended sources:** re-point every `{group.token}` in borrowed prose at the tokens that

@@ -26,6 +26,14 @@
     {
       "label": "check-contrast",
       "run": "\"$SKILL/scripts/check-contrast\" DESIGN.md"
+    },
+    {
+      "label": "Known Gaps says Google's lint/export ignore colors-dark",
+      "run": "! grep -q '^colors-dark:' DESIGN.md || sed -n '/^## Known Gaps/,$p' DESIGN.md | grep -qiE 'colors-dark.*(lint|export)|(lint|export).*colors-dark'"
+    },
+    {
+      "label": "no transparent backgroundColor",
+      "run": "! grep -qE 'backgroundColor: *\"?transparent' DESIGN.md"
     }
   ],
   "judge": [
