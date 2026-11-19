@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # scripts/build-catalog [upstream-checkout] > references/catalog.md
+# scripts/build-catalog --rows <README.md>   (row parser only, no network; for tests/run)
 #
 # Regenerate the design-system catalog from VoltAgent/awesome-claude-design's README.
 # The catalog is vendored rather than fetched per run so the skill works offline and a
@@ -11,6 +12,35 @@
 # header are what make a later diff meaningful — do not hand-edit catalog.md.
 
 set -euo pipefail
+
+# Upstream shape, one entry per line under "### <Category>" inside "## Collection":
+#   - [**Linear**](https://getdesign.md/linear.app/design-md) - Project management. Ultra-minimal
+rows() {
+awk -v feel_max=160 -v feel_ok="^[A-Za-z0-9 ,.;:&()/'+-]+$" '
+  /^## Collection/          { on = 1; next }
+  on && /^## /              { exit }
+  on && /^### /             { printf "\n## %s\n\n| System | Slug | Feel |\n| --- | --- | --- |\n", substr($0, 5); next }
+  on && /^- \[\*\*/ {
+    name = $0; sub(/^- \[\*\*/, "", name); sub(/\*\*\].*/, "", name)
+    slug = $0; sub(/.*getdesign\.md\//, "", slug); sub(/\/design-md\).*/, "", slug)
+    # The slug goes into fetch URLs (the model builds them) and into tests/run probes.
+    # It is upstream text, so refuse anything that is not a plain path segment.
+    if (slug !~ /^[A-Za-z0-9._-]+$/) { print "build-catalog: refusing slug: " slug > "/dev/stderr"; exit 1 }
+    # Feel is upstream text too, and the model reads it (--list prints it as-is). Cap
+    # its length and characters: refuse, not trim, so upstream drift is a reviewed diff.
+    # The allowlist excludes "|", so the table needs no escaping.
+    feel = $0; sub(/^[^)]*\) - /, "", feel)
+    if (length(feel) > feel_max) { print "build-catalog: refusing Feel for " slug ": over " feel_max " characters" > "/dev/stderr"; exit 1 }
+    if (feel !~ feel_ok) { print "build-catalog: refusing Feel for " slug ": characters outside the allowlist: " feel > "/dev/stderr"; exit 1 }
+    printf "| %s | `%s` | %s |\n", name, slug, feel
+  }
+' "$1"
+}
+
+if [ "${1:-}" = "--rows" ]; then
+  rows "${2:?usage: build-catalog --rows <README.md>}"
+  exit
+fi
 
 UPSTREAM=https://github.com/VoltAgent/awesome-claude-design.git
 SRC="${1:-}"
@@ -47,19 +77,4 @@ https://raw.githubusercontent.com/VoltAgent/awesome-design-md/main/design-md/<sl
 Preview it in a browser at \`https://getdesign.md/<slug>/design-md\`.
 HEADER
 
-# Upstream shape, one entry per line under "### <Category>" inside "## Collection":
-#   - [**Linear**](https://getdesign.md/linear.app/design-md) - Project management. Ultra-minimal
-awk '
-  /^## Collection/          { on = 1; next }
-  on && /^## /              { exit }
-  on && /^### /             { printf "\n## %s\n\n| System | Slug | Feel |\n| --- | --- | --- |\n", substr($0, 5); next }
-  on && /^- \[\*\*/ {
-    name = $0; sub(/^- \[\*\*/, "", name); sub(/\*\*\].*/, "", name)
-    slug = $0; sub(/.*getdesign\.md\//, "", slug); sub(/\/design-md\).*/, "", slug)
-    # The slug goes into fetch URLs (the model builds them) and into tests/run probes.
-    # It is upstream text, so refuse anything that is not a plain path segment.
-    if (slug !~ /^[A-Za-z0-9._-]+$/) { print "build-catalog: refusing slug: " slug > "/dev/stderr"; exit 1 }
-    feel = $0; sub(/^[^)]*\) - /, "", feel); gsub(/\|/, "\\|", feel)
-    printf "| %s | `%s` | %s |\n", name, slug, feel
-  }
-' "$SRC/README.md"
+rows "$SRC/README.md"
