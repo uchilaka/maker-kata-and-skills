@@ -45,6 +45,11 @@ version, not what the diff did.
   piped `launchctl list` into `grep -q` under `pipefail`, so the producer died of SIGPIPE
   and the pipeline returned 141 rather than grep's 0. `bin/doctor` can now exit 0 on a
   correctly installed machine, which was not previously reachable.
+- `/make-design-system`'s `check-contrast` reads four front-matter shapes it used to get
+  wrong: a quoted component key (`"button-ghost":`) is reported under its own name, an
+  empty colour value fails with `has no value` instead of a traceback, `*-disabled-hover`
+  is exempt like `*-disabled`, and a file indented four spaces is read in full. Keys
+  nested deeper than component properties now print a `warn` rather than vanishing.
 
 ### Known gaps
 
