@@ -15,7 +15,7 @@
 # SessionStart hook injected the grading plan into every session, and one run graded
 # itself. So each case runs in a fresh temp copy of the Fieldnote project with
 # `--setting-sources project`: no user hooks, no user CLAUDE.md, no user skills. The skill
-# under test is linked in as a project skill, so it is this checkout's version, not the
+# under test is copied in as a project skill, so it is this checkout's version, not the
 # installed one.
 #
 # Every case ends PASS, FAIL or INCONCLUSIVE. Inconclusive means the scripted user lost
@@ -56,8 +56,17 @@ DENIED = ["Bash(npx:*)", "Bash(rm:*)", "Bash(git push:*)", "Bash(sudo:*)", "WebF
 
 
 def sandbox_settings(workdir):
+    # The scratchpad base stays an added dir (claude() below), since runs fetch into
+    # $TMPDIR under it and Read allow rules alone didn't grant that under -p (2026-11-19:
+    # denials per case rose from 1-2 to 3-5). But an added dir is writable by Write/Edit
+    # under acceptEdits, which the sandbox (Bash only) does not confine: a probe that day
+    # wrote into the real skill folder and /tmp/claude-<uid> that way (PR #7 review). So
+    # Write/Edit are denied there explicitly; deny rules beat acceptEdits.
+    tmp_base = f"/tmp/claude-{os.getuid()}"
+    no_edit = [f"{tool}(/{base}/**)" for tool in ("Edit", "Write")
+               for base in (tmp_base, "/private" + tmp_base)]
     return {
-        "permissions": {"deny": DENIED},
+        "permissions": {"deny": DENIED + no_edit},
         "sandbox": {
             "enabled": True,
             "autoAllowBashIfSandboxed": True,
@@ -70,20 +79,17 @@ def sandbox_settings(workdir):
 def claude(args, cwd, model, timeout=900):
     """One `claude -p` call. Returns the parsed stream-json events.
 
-    Reads outside the project need a grant, and a run reads two such places: the skill
-    (linked in, so its real path is elsewhere) and its scratch folder. SKILL.md fetches
-    into "$SCRATCH", which only an interactive session defines, so it is set here to a
-    folder inside the workdir. Without both, runs picked /tmp/claude-501/... and were
-    denied the read (2026-10-12). They still do, preferring the scratchpad base every
-    session is given (/tmp/claude-<uid>), so that is granted for reading too. Writes stay
-    confined by the sandbox.
+    SKILL.md fetches into "$SCRATCH", which only an interactive session defines, so it is
+    set here to a folder inside the workdir. Runs still fetch under the scratchpad base
+    every session is given (/tmp/claude-<uid>, where $TMPDIR points), so that is added
+    for reading; sandbox_settings denies Write/Edit there. The skill is copied into the
+    workdir (make_workdir), so the real checkout is not added at all.
     """
     tmp_base = f"/tmp/claude-{os.getuid()}"
     scratch = Path(cwd) / ".scratch"
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     env["SCRATCH"] = str(scratch)
     cmd = ["claude", "-p", *args, "--model", model, "--setting-sources", "project",
-           "--add-dir", str(SKILL), "--add-dir", str(scratch),
            "--add-dir", tmp_base, "--add-dir", "/private" + tmp_base,
            "--output-format", "stream-json", "--verbose"]
     proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
@@ -286,14 +292,19 @@ def judge(case, transcript, model, workdir):
     return results
 
 
-def run_case(case, model, out):
+def make_workdir(case):
+    """A fresh temp copy of the sample project, with the skill and sandbox settings in."""
     work = Path(tempfile.mkdtemp(prefix=f"mds-eval-{case['id']}-"))
     shutil.copytree(HERE / "project", work, dirs_exist_ok=True)
     (work / ".claude" / "skills").mkdir(parents=True)
     (work / ".claude" / "settings.json").write_text(json.dumps(sandbox_settings(work), indent=2))
     (work / ".scratch").mkdir()
     (work / ".gitignore").write_text(".scratch/\n")
-    (work / ".claude" / "skills" / "make-design-system").symlink_to(SKILL)
+    # A copy, not a symlink: a link made the real checkout reachable (and, with it added as
+    # a dir, writable) from the run. evals/ and tests/ stay out, so the run can't read the
+    # rubric it is graded by.
+    shutil.copytree(SKILL, work / ".claude" / "skills" / "make-design-system",
+                    ignore=shutil.ignore_patterns("evals", "tests", "__pycache__"))
     for step in case.get("setup", []):
         subprocess.run(step, shell=True, cwd=work, check=True,
                        env={**os.environ, "EVALS": str(HERE)})
@@ -301,7 +312,11 @@ def run_case(case, model, out):
     subprocess.run(["git", "add", "-A"], cwd=work, check=True)
     subprocess.run(["git", "-c", "user.name=eval", "-c", "user.email=eval@localhost",
                     "commit", "-qm", "baseline"], cwd=work, check=True)
+    return work
 
+
+def run_case(case, model, out):
+    work = make_workdir(case)
     with open(out / f"{case['id']}.events.jsonl", "w") as log:
         try:
             transcript, stop = converse(case, work, model, log)
