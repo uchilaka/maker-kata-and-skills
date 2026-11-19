@@ -14,8 +14,10 @@
 #     exactly, and every pair is checked again with its values.
 #   - A missing or `transparent` background sits on a canvas, not on black (Google's
 #     linter reads it as black and reports false failures). Which canvas: a name ending
-#     segment `-on-light` / `-on-dark` picks `canvas-light` / `canvas-dark` when defined; otherwise
-#     every `canvas*` token is tried. Failing on all of them fails; failing on some is a
+#     segment `-on-light` / `-on-dark` picks `canvas-light` / `canvas-dark` when defined,
+#     else the lightest / darkest canvas (R5b's dark canvas is plain `canvas`); otherwise
+#     every canvas surface is tried. A `canvas-*` key named for a non-surface colour
+#     (`canvas-border`) is not a surface. Failing on all of them fails; failing on some is a
 #     warn, because a file with a dark landing page and a light app (R5b) can't say from
 #     the tokens alone which one a `transparent` component lands on.
 #   - A state variant without its own colour (`table-row-hover`) inherits from the longest
@@ -100,17 +102,32 @@ def inherited(components, name, prop):
     return None
 
 
-# TODO(LAR-405): a dark canvas named plain `canvas`, or a non-surface `canvas-*` key,
-# makes this warn when nothing is wrong.
+# Name segments that mark a `canvas-*` key as a colour drawn ON the canvas rather than the
+# canvas itself. A denylist, not an allowlist: surfaces are named freely (`canvas-paper`,
+# `canvas-soft-2`, `canvas-elevated`), and an allowlist would drop real ones. Counting
+# `canvas-border` as a surface turned passes into warns (LAR-405).
+NOT_SURFACE = {"border", "divider", "hairline", "line", "outline", "ring", "focus",
+               "stroke", "shadow", "text", "ink", "fg", "foreground", "on"}
+
+
 def canvases(palette, name):
     """The canvas tokens a transparent component could be sitting on."""
-    for suffix in ("light", "dark"):
+    surfaces = [k for k in palette if k == "canvas" or (
+        k.startswith("canvas-") and not NOT_SURFACE & set(k.split("-")[1:]))]
+    for suffix, pick in (("light", max), ("dark", min)):
         # A whole-segment match, so `link-on-dark-hover` picks the dark canvas too. An
         # endswith() check missed it, fell back to every canvas, and turned a real fail
         # into a warn.
-        if f"-on-{suffix}-" in f"{name}-" and f"canvas-{suffix}" in palette:
+        if f"-on-{suffix}-" not in f"{name}-":
+            continue
+        if f"canvas-{suffix}" in palette:
             return [f"canvas-{suffix}"]
-    return [k for k in palette if k == "canvas" or k.startswith("canvas-")] or ["canvas"]
+        # No canvas named for the side: R5b calls its dark canvas plain `canvas`. The
+        # darkest (or lightest) surface is the one the name means; trying them all warned
+        # `ink on canvas-light = 1.00:1` for a component that never sits there.
+        if surfaces:
+            return [pick(surfaces, key=lambda k: luminance(palette[k]))]
+    return surfaces or ["canvas"]
 
 
 def color_key(ref):

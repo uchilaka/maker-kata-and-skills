@@ -131,6 +131,25 @@ canvas_case on-dark-variant link-on-dark-hover "#444444"
 refuse "a state variant of -on-dark keeps the dark canvas" "link-on-dark-hover (light): text on canvas-dark" \
   "$SKILL/scripts/check-contrast" "$TMP/on-dark-variant.md"
 
+# R5b names its dark canvas plain `canvas`, with no `canvas-dark`. `-on-dark` must then
+# fall to the darkest canvas, not to every canvas (which warned ink on white, 1.00:1).
+printf -- '---\ncolors:\n  canvas: "#111111"\n  canvas-light: "#FFFFFF"\n  text: "#EEEEEE"\ncomponents:\n  link-on-dark:\n    textColor: "{colors.text}"\n---\n' > "$TMP/unnamed-dark.md"
+out=$("$SKILL/scripts/check-contrast" "$TMP/unnamed-dark.md" 2>&1)
+if [ $? -eq 0 ] && ! printf '%s\n' "$out" | grep -q '^warn'; then pass "-on-dark with no canvas-dark uses the darkest canvas"
+else fail "-on-dark with no canvas-dark did not use the darkest canvas" "$out"; fi
+printf -- '---\ncolors:\n  canvas-dark: "#111111"\n  canvas: "#FFFFFF"\n  text: "#EEEEEE"\ncomponents:\n  link-on-light:\n    textColor: "{colors.text}"\n---\n' > "$TMP/unnamed-light.md"
+refuse "-on-light with no canvas-light uses the lightest canvas" "link-on-light (light): text on canvas =" \
+  "$SKILL/scripts/check-contrast" "$TMP/unnamed-light.md"
+# A `canvas-*` key that is not a surface (a border colour) is not a background candidate.
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\n  canvas-border: "#CCCCCC"\n  text: "#666666"\ncomponents:\n  label:\n    textColor: "{colors.text}"\n---\n' > "$TMP/canvas-border.md"
+out=$("$SKILL/scripts/check-contrast" "$TMP/canvas-border.md" 2>&1)
+if [ $? -eq 0 ] && ! printf '%s\n' "$out" | grep -q '^warn'; then pass "a canvas-border key is not tried as a background"
+else fail "a canvas-border key was tried as a background" "$out"; fi
+out=$("$SKILL/scripts/check-contrast" "$FIX/R5b.DESIGN.md" 2>&1)
+if printf '%s\n' "$out" | grep -q '^warn button-outline-on-dark'; then
+  fail "R5b button-outline-on-dark still warns on canvas-light" "$out"
+else pass "R5b button-outline-on-dark is checked on its dark canvas only"; fi
+
 echo "check-contrast failure paths (hand-written cases)"
 printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  card:\n    rounded: 8px\n---\n' > "$TMP/no-pairs.md"
 refuse "a file with no text pairs fails, not passes" "no component text/background pairs" \
