@@ -41,6 +41,12 @@ version, not what the diff did.
   Its final report is now three plain-text lines that end at the hand-off, with no
   passing checks listed. Held by tier-2 evals (`evals/run`, 14 scripted multi-turn
   cases in a sandboxed sample project), whose scripted checks self-test in `tests/run`.
+- `/make-design-system` treats catalog rows as data. The *Feel* column is upstream
+  README text that reaches the model, so `--list` now labels its rows as data, not
+  instructions, and `SKILL.md` says the same for the shortlist. `scripts/build-catalog`
+  refuses a *Feel* over 160 characters or with characters outside a small allowlist, as
+  it already did for slugs. A rebuild that hits this fails loudly instead of vendoring
+  the text; widen the allowlist on purpose in that commit.
 - `bin/doctor` no longer reports a loaded launchd agent as missing. The schedule check
   piped `launchctl list` into `grep -q` under `pipefail`, so the producer died of SIGPIPE
   and the pipeline returned 141 rather than grep's 0. `bin/doctor` can now exit 0 on a
