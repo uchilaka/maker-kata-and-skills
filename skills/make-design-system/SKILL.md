@@ -54,6 +54,11 @@ whatever the request and the repo leave open. **Light, dark or both** is the one
 often left open, and the sources often disagree on it (one dark-first, one light). When
 the brief doesn't say, ask; never settle it yourself and mention it afterwards.
 
+**Named two sources?** The brief message also states the planned split, one line per
+source: which sections or aspects it will supply, judged from `references/catalog.md`. Say
+it here because the brief is the last message before the fetch-and-write run, and runs
+have gone straight from the user's answer to writing without a word in between.
+
 ### 2. Shortlist three
 
 Match the brief against `references/catalog.md` (the *Feel* column and the category).
@@ -81,9 +86,12 @@ A 404 means upstream renamed the slug. Rebuild the catalog (below) rather than g
 
 ### 4. Adapt
 
-**Blending two sources? Say the split before writing anything**, one line per source:
-which sections or aspects it supplies. This applies however the blend started, from the
-shortlist or from two slugs.
+**Blending two sources? The user hears the split before anything is written**, one line
+per source: which sections or aspects it supplies. Two named slugs: the brief states it
+(step 1). A blend from the shortlist: the shortlist's blend suggestion states it, and if
+the user picks a different blend, say its split and confirm before fetching. The report's
+`Adapted from:` line comes too late to count; it only corrects the split if reading the
+sources changed it.
 
 Write the new `DESIGN.md`, keeping the source's layout: YAML front matter for tokens, then
 the prose sections.
