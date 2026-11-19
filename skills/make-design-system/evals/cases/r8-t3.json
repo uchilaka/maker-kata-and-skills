@@ -1,0 +1,10 @@
+{
+  "id": "r8-t3",
+  "plan": "S9",
+  "title": "trigger: 'pick a design system for this app'",
+  "prompt": "pick a design system for this app",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "expect_trigger": true,
+  "setup": []
+}

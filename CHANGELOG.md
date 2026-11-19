@@ -35,6 +35,12 @@ version, not what the diff did.
 
 ### Fixed
 
+- `/make-design-system` asks before it decides: it reads the repo before the brief, a
+  named inspiration skips only the shortlist (not the brief), light/dark is asked rather
+  than assumed, and a blend's split is stated in the brief, before anything is written.
+  Its final report is now three plain-text lines that end at the hand-off, with no
+  passing checks listed. Held by tier-2 evals (`evals/run`, 14 scripted multi-turn
+  cases in a sandboxed sample project), whose scripted checks self-test in `tests/run`.
 - `bin/doctor` no longer reports a loaded launchd agent as missing. The schedule check
   piped `launchctl list` into `grep -q` under `pipefail`, so the producer died of SIGPIPE
   and the pipeline returned 141 rather than grep's 0. `bin/doctor` can now exit 0 on a

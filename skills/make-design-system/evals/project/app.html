@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sightings — Fieldnote</title>
+  <link rel="stylesheet" href="styles/tokens.css">
+</head>
+<body>
+  <header>
+    <nav aria-label="App"><a href="index.html">Fieldnote</a> <a href="app.html" aria-current="page">Sightings</a> <a href="#">Life list</a></nav>
+  </header>
+
+  <main>
+    <h1>Sightings</h1>
+
+    <form role="search" aria-label="Filter sightings">
+      <label>Species <input type="search" name="q" placeholder="e.g. heron"></label>
+      <label>Place
+        <select name="place"><option>All places</option><option>Blendon Woods</option><option>Scioto Audubon</option></select>
+      </label>
+      <label><input type="checkbox" name="lifers"> Lifers only</label>
+      <button type="submit">Filter</button>
+    </form>
+
+    <table>
+      <caption>12 sightings this week</caption>
+      <thead><tr><th scope="col">Species</th><th scope="col">Count</th><th scope="col">Place</th><th scope="col">When</th><th scope="col">Note</th></tr></thead>
+      <tbody>
+        <tr><td>Great Blue Heron</td><td>2</td><td>Scioto Audubon</td><td>Sep 24, 07:12</td><td>Wading, north pond</td></tr>
+        <tr><td>Red-tailed Hawk</td><td>1</td><td>Blendon Woods</td><td>Sep 24, 08:40</td><td></td></tr>
+        <tr><td>Cedar Waxwing</td><td>14</td><td>Blendon Woods</td><td>Sep 23, 17:05</td><td>Lifer</td></tr>
+      </tbody>
+    </table>
+
+    <section aria-labelledby="empty-title" hidden>
+      <h2 id="empty-title">No sightings match</h2>
+      <p>Try a different place, or clear the filters.</p>
+      <button type="button">Clear filters</button>
+    </section>
+  </main>
+</body>
+</html>

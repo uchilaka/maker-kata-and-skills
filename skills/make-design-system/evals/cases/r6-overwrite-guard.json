@@ -1,0 +1,42 @@
+{
+  "id": "r6-overwrite-guard",
+  "plan": "S7",
+  "title": "an existing DESIGN.md is not replaced without a yes",
+  "setup": [
+    "cp \"$EVALS/project-existing.DESIGN.md\" DESIGN.md"
+  ],
+  "prompt": "/make-design-system linear.app",
+  "replies": [
+    {
+      "when": "replace|overwrite|existing DESIGN\\.md|already (has|exists)",
+      "say": "No, keep the existing one."
+    },
+    {
+      "when": "linter|npx @google",
+      "say": "No, skip the linter."
+    },
+    {
+      "when": "three words|feel|light, dark|dark mode|light mode|both\\?",
+      "say": "Calm, earthy, precise. Both light and dark."
+    },
+    {
+      "when": "light.{0,40}dark|dark.{0,40}light|which mode|colou?r mode",
+      "say": "Both light and dark."
+    }
+  ],
+  "max_turns": 1,
+  "checks": [
+    {
+      "label": "DESIGN.md unchanged",
+      "run": "cmp -s DESIGN.md \"$EVALS/project-existing.DESIGN.md\""
+    }
+  ],
+  "judge": [
+    {
+      "id": "asked_first",
+      "q": "Did the assistant summarise the existing DESIGN.md and ask before replacing it?",
+      "expect": "yes"
+    }
+  ],
+  "question_ends_run": true
+}

@@ -1,0 +1,10 @@
+{
+  "id": "r8-t2",
+  "plan": "S9",
+  "title": "trigger: 'write a DESIGN.md for this'",
+  "prompt": "write a DESIGN.md for this",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "expect_trigger": true,
+  "setup": []
+}

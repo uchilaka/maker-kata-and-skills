@@ -16,7 +16,8 @@
 #     means upstream moved, not that the skill broke, so they are opt-in.
 #
 # The behavioural checks (did it ask before writing, was the report three lines) need a
-# model, and live in the tier-2 evals instead.
+# model, and live in the tier-2 evals instead. The evals' scripted transcript checks are
+# plain code, though, so their self-test runs here.
 
 # No -e, unlike the sibling scripts: commands here are expected to fail, and expect() /
 # refuse() record each status. With -e the first deliberate failure would end the run.
@@ -146,6 +147,12 @@ for spec in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
   got=$(count $words)
   if [ "$got" = "$want" ]; then pass "list-catalog '$words' = $want"; else fail "list-catalog '$words' = $got, want $want"; fi
 done
+
+# The tier-2 evals grade some behaviour by script, not by model (evals/run's
+# TRANSCRIPT_CHECKS). Those scripts are plain code and are checked here, so a check that
+# passes what it should fail is caught without spending a model run.
+echo "eval scripted checks"
+expect 0 "evals/run --self-test" "$SKILL/evals/run" --self-test
 
 if [ "${1:-}" = "--online" ]; then
   echo "upstream drift (online)"

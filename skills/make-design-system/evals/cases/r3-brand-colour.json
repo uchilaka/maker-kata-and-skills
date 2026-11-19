@@ -1,0 +1,44 @@
+{
+  "id": "r3-brand-colour",
+  "plan": "S4",
+  "title": "a declared brand colour survives",
+  "prompt": "/make-design-system stripe. Our brand colour is the green in styles/tokens.css. Keep it.",
+  "replies": [
+    {
+      "when": "linter|npx @google",
+      "say": "No, skip the linter."
+    },
+    {
+      "when": "three words|feel|light, dark|dark mode|light mode|both\\?",
+      "say": "Calm, earthy, precise. Both light and dark."
+    },
+    {
+      "when": "light.{0,40}dark|dark.{0,40}light|which mode|colou?r mode",
+      "say": "Both light and dark."
+    }
+  ],
+  "max_turns": 4,
+  "checks": [
+    {
+      "label": "the accent role is the brand green",
+      "run": "grep -qiE '^  (primary|accent): \"?#2F6B4F' DESIGN.md"
+    },
+    {
+      "label": "check-design-md (Stripe)",
+      "run": "\"$SKILL/scripts/check-design-md\" DESIGN.md Stripe"
+    },
+    {
+      "label": "check-contrast",
+      "run": "\"$SKILL/scripts/check-contrast\" DESIGN.md"
+    },
+    {
+      "label": "text-on-accent contrast is stated in the file",
+      "run": "grep -qE '[0-9]+(\\.[0-9]+)?:1' DESIGN.md"
+    }
+  ],
+  "judge": [],
+  "transcript_checks": [
+    "three_line_report",
+    "no_shortlist"
+  ]
+}

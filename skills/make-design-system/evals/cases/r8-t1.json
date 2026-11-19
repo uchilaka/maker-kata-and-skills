@@ -1,0 +1,10 @@
+{
+  "id": "r8-t1",
+  "plan": "S9",
+  "title": "trigger: 'I want Fieldnote to feel like Notion'",
+  "prompt": "I want Fieldnote to feel like Notion",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "expect_trigger": true,
+  "setup": []
+}

@@ -1,0 +1,12 @@
+{
+  "id": "r8-t4",
+  "plan": "S9",
+  "title": "trigger: 'make the primary button in DESIGN.md rounder'",
+  "prompt": "make the primary button in DESIGN.md rounder",
+  "max_turns": 0,
+  "question_ends_run": true,
+  "expect_trigger": false,
+  "setup": [
+    "cp \"$EVALS/project-existing.DESIGN.md\" DESIGN.md"
+  ]
+}

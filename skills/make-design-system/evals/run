@@ -1,0 +1,472 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+#
+# evals/run [--model sonnet|opus] [--out DIR] [case-id ...]
+#
+# Tier-2 evals for /make-design-system: the behaviour that tests/run can't check without a
+# model. Did it ask before overwriting? Did it disclose a blend's split before writing? Was
+# the report three lines? Each case is one scripted conversation with a real `claude -p`.
+#
+# Why a runner of our own: skill-creator's run_eval.py only checks whether a skill
+# triggers, one prompt at a time. These cases need answers partway through a run (the
+# brief, the overwrite guard), so each reply here is a `claude -p --resume <session>`.
+#
+# Isolation is what makes a result mean anything. The 2026-10 hand runs leaked: a
+# SessionStart hook injected the grading plan into every session, and one run graded
+# itself. So each case runs in a fresh temp copy of the Fieldnote project with
+# `--setting-sources project`: no user hooks, no user CLAUDE.md, no user skills. The skill
+# under test is copied in as a project skill, so it is this checkout's version, not the
+# installed one.
+#
+# Every case ends PASS, FAIL or INCONCLUSIVE. Inconclusive means the scripted user lost
+# the thread (a question no reply rule matched, or the turn limit), and is never a pass.
+#
+# TODO(LAR-502): it's 14 cases now.
+# Costs real model time: about 8 cases of 2-4 turns. Use sonnet while developing and opus
+# once before merging.
+
+import argparse
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import uuid
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+JUDGE_MODEL = "opus"
+SKILL = HERE.parent
+
+# Runs get Bash inside Claude Code's OS sandbox rather than a per-command allowlist. The
+# allowlist was tried first (2026-10-12) and lost: runs chain ordinary commands
+# (`ls; grep ...`, `cd ... && ...`) that no prefix list keeps up with, so 7 of 14 cases
+# ended in a denial instead of a verdict. The sandbox lets any command run but confines
+# it: writes only to the workdir (and temp dirs), network only to the raw-file host the
+# skill fetches from. Verified: example.com is refused, a write to $HOME is "Operation
+# not permitted", and npx is denied before it runs.
+#
+# WebFetch is denied because it is not a Bash command, so the sandbox's network rule does
+# not cover it. npx stays denied so the Google linter offer can never run (it executes
+# TODO(LAR-502): a denial voids a case only when a file check also fails; fix wording.
+# third-party code). A run that tries to leave the sandbox needs a permission prompt that
+# -p can't answer, which shows up as a denial and makes the case INCONCLUSIVE.
+DENIED = ["Bash(npx:*)", "Bash(rm:*)", "Bash(git push:*)", "Bash(sudo:*)", "WebFetch"]
+
+
+def sandbox_settings(workdir):
+    # The scratchpad base stays an added dir (claude() below), since runs fetch into
+    # $TMPDIR under it and Read allow rules alone didn't grant that under -p (2026-11-19:
+    # denials per case rose from 1-2 to 3-5). But an added dir is writable by Write/Edit
+    # under acceptEdits, which the sandbox (Bash only) does not confine: a probe that day
+    # wrote into the real skill folder and /tmp/claude-<uid> that way (PR #7 review). So
+    # Write/Edit are denied there explicitly; deny rules beat acceptEdits.
+    tmp_base = f"/tmp/claude-{os.getuid()}"
+    no_edit = [f"{tool}(/{base}/**)" for tool in ("Edit", "Write")
+               for base in (tmp_base, "/private" + tmp_base)]
+    return {
+        "permissions": {"deny": DENIED + no_edit},
+        "sandbox": {
+            "enabled": True,
+            "autoAllowBashIfSandboxed": True,
+            "network": {"allowedDomains": ["raw.githubusercontent.com"], "strictAllowlist": True},
+            "filesystem": {"allowWrite": [str(workdir), str(Path(workdir).resolve())]},
+        },
+    }
+
+
+def claude(args, cwd, model, timeout=900):
+    """One `claude -p` call. Returns the parsed stream-json events.
+
+    SKILL.md fetches into "$SCRATCH", which only an interactive session defines, so it is
+    set here to a folder inside the workdir. Runs still fetch under the scratchpad base
+    every session is given (/tmp/claude-<uid>, where $TMPDIR points), so that is added
+    for reading; sandbox_settings denies Write/Edit there. The skill is copied into the
+    workdir (make_workdir), so the real checkout is not added at all.
+    """
+    tmp_base = f"/tmp/claude-{os.getuid()}"
+    scratch = Path(cwd) / ".scratch"
+    # TODO(LAR-502): allowlist the env; deny reads of ~/.ssh, ~/.aws, ~/.config and
+    # ~/.claude, ~/.netrc.
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    env["SCRATCH"] = str(scratch)
+    cmd = ["claude", "-p", *args, "--model", model, "--setting-sources", "project",
+           "--add-dir", tmp_base, "--add-dir", "/private" + tmp_base,
+           "--output-format", "stream-json", "--verbose"]
+    proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True,
+                          timeout=timeout)
+    events = []
+    for line in proc.stdout.splitlines():
+        try:
+            events.append(json.loads(line))
+        except json.JSONDecodeError:
+            pass
+    if not events:
+        raise RuntimeError(f"claude -p produced no events (exit {proc.returncode}): "
+                           f"{proc.stderr.strip()[:300]}")
+    return events
+
+
+def final_text(events):
+    for e in reversed(events):
+        if e.get("type") == "result":
+            return e.get("result") or ""
+    return ""
+
+
+def readable(events):
+    """The turn as ordered lines: assistant text, and each tool call in brief.
+
+    Order matters to the judge: "disclosed before writing" is a question about whether
+    a text block comes before the Write call.
+    """
+    out = []
+    for e in events:
+        if e.get("type") != "assistant":
+            continue
+        for block in e.get("message", {}).get("content", []):
+            if block.get("type") == "text" and block.get("text", "").strip():
+                out.append("ASSISTANT: " + block["text"].strip())
+            elif block.get("type") == "tool_use":
+                inp = block.get("input", {})
+                brief = (inp.get("command") or inp.get("file_path") or inp.get("pattern")
+                         or inp.get("skill") or "")
+                out.append(f"TOOL {block.get('name')}: {str(brief)[:200]}")
+    return out
+
+
+def denials(events):
+    for e in events:
+        if e.get("type") == "result":
+            return e.get("permission_denials") or []
+    return []
+
+
+def isolated_from_user_config(events):
+    """True if the init event shows no user-scope memory or user skills leaked in."""
+    for e in events:
+        if e.get("type") == "system" and e.get("subtype") == "init":
+            if set(e.get("memory_paths") or {}) - {"auto"}:
+                return False
+            # TODO(LAR-502): machine-specific; check the skill list holds only
+            # make-design-system and the built-ins.
+            # pr-review is a user skill; seeing it means user settings loaded.
+            return "pr-review" not in (e.get("skills") or [])
+    return False
+
+
+ASKING = re.compile(r"tell me|let me know|once you('ve| have) answered|before I (write|adapt|start)"
+                    r"|which (would|do) you|your call|should I", re.I)
+
+
+def converse(case, workdir, model, log):
+    """Run the case's scripted conversation. Returns (transcript lines, reason or None)."""
+    session = str(uuid.uuid4())
+    perms = ["--permission-mode", "acceptEdits"]
+    events = claude([case["prompt"], "--session-id", session, *perms], workdir, model)
+    if not isolated_from_user_config(events):
+        return [], "isolation broken: user config visible to the run"
+    transcript = [f"USER: {case['prompt']}"]
+    used = set()
+    for turn in range(case.get("max_turns", 4) + 1):
+        log.write(json.dumps(events) + "\n")
+        transcript.extend(readable(events))
+        for d in denials(events):
+            transcript.append(f"DENIED {d.get('tool_name')}: {json.dumps(d.get('tool_input'))[:200]}")
+        if turn == case.get("max_turns", 4):
+            break
+        text = final_text(events)
+        # Reply only to a message that asks something. A finished report that happens to
+        # contain "feel" or "dark mode" must not get a scripted answer. Questions aren't
+        # always last or always end in "?": runs ask early in a long message and close
+        # with "Tell me if..." or "once you've answered" (2026-11-16).
+        asking = "?" in text or bool(ASKING.search(text))
+        rule = None if not asking else next(
+            (i for i, r in enumerate(case.get("replies", []))
+             if i not in used and re.search(r["when"], text, re.I | re.S)), None)
+        if rule is None:
+            # A question nobody scripted an answer to: the run can't be graded fairly.
+            if asking and not case.get("question_ends_run"):
+                return transcript, f"unscripted question: {text.strip()[-160:]!r}"
+            return transcript, None
+        used.add(rule)
+        say = case["replies"][rule]["say"]
+        transcript.append(f"USER: {say}")
+        events = claude([say, "--resume", session, *perms], workdir, model)
+    if case.get("max_turns", 4) == 0 or case.get("question_ends_run"):
+        return transcript, None
+    return transcript, "turn limit reached"
+
+
+JUDGE_PROMPT = """You are grading one transcript of an AI assistant running a skill. Answer each
+question strictly from the transcript. Lines are in order; "TOOL Write: <path>" is the moment a
+file was written. For each question answer "yes", "no" or "unclear", and quote the single
+transcript line that decides it (or "" if none). Reply with JSON only, no prose:
+[{{"id": "<question id>", "answer": "yes|no|unclear", "evidence": "<quoted line>"}}]
+
+QUESTIONS:
+{questions}
+
+TRANSCRIPT:
+{transcript}
+"""
+
+
+def assistant_messages(transcript):
+    """Each ASSISTANT entry as one message, with its continuation lines rejoined."""
+    msgs, cur = [], None
+    for line in transcript:
+        if line.startswith("ASSISTANT: "):
+            cur = [line[len("ASSISTANT: "):]]
+            msgs.append(cur)
+        elif line.startswith(("USER: ", "TOOL ", "DENIED ")):
+            cur = None
+        elif cur is not None:
+            cur.append(line)
+    return ["\n".join(m) for m in msgs]
+
+
+HANDOFF_START = re.compile(r"Claude Design|claude\.ai/design|\blinter\b", re.I)
+
+
+def check_three_line_report(transcript):
+    """The report is exactly `Adapted from:` / `Changed:` / `File:`, then only hand-off.
+
+    Scripted rather than judged: a model judge graded the follow-up message instead of
+    the report, twice (2026-11-16). The first non-blank line after the third must open
+    the hand-off (every real run's names Claude Design) or the linter offer; anything
+    from there on is exempt. An earlier version exempted any later line containing a
+    hand-off word as a substring, so "I handled the contrast..." passed as hand-off.
+    """
+    reports = [m for m in assistant_messages(transcript) if "Adapted from:" in m]
+    if not reports:
+        return False, "no message contains 'Adapted from:'"
+    lines = [l for l in reports[-1].split("\n") if l.strip()]
+    start = next(i for i, l in enumerate(lines) if "Adapted from:" in l)
+    body = lines[start:start + 3]
+    labels = ["Adapted from:", "Changed:", "File:"]
+    if not all(l.lstrip("-* `").startswith(lab) for l, lab in zip(body, labels)) or len(body) < 3:
+        return False, f"first lines are not the three labels: {body!r}"[:200]
+    rest = lines[start + 3:]
+    if rest and not HANDOFF_START.search(rest[0]):
+        return False, f"report runs on past three lines: {rest[0][:120]!r}"
+    return True, "three labelled lines"
+
+
+def check_no_shortlist(transcript):
+    """A shortlist links each candidate's preview, so two or more links means one was shown."""
+    text = "\n".join(assistant_messages(transcript))
+    slugs = set(re.findall(r"getdesign\.md/([A-Za-z0-9._-]+)/design-md", text))
+    return len(slugs) < 2, f"{len(slugs)} preview link(s) in assistant text"
+
+
+TRANSCRIPT_CHECKS = {"three_line_report": check_three_line_report, "no_shortlist": check_no_shortlist}
+
+
+def parse_answers(raw):
+    m = re.search(r"\[.*\]", raw, re.S)
+    try:
+        return {a["id"]: a for a in json.loads(m.group(0))} if m else {}
+    except (json.JSONDecodeError, KeyError, TypeError):
+        return {}
+
+
+def judge(case, transcript, model, workdir):
+    # The judge runs on its own model (default opus): one cheap call per case, and the
+    # sonnet judge answered against its own quoted evidence on 2026-11-16.
+    questions = "\n".join(f"- {q['id']}: {q['q']}" for q in case.get("judge", []))
+    if not questions:
+        return []
+    prompt = JUDGE_PROMPT.format(questions=questions, transcript="\n".join(transcript))
+    # The judge needs no tools: everything it grades is in the prompt.
+    # TODO(LAR-502): give the judge no tools (Agent, NotebookEdit, WebSearch still pass).
+    events = claude([prompt, "--disallowedTools", "Bash", "Write", "Edit", "Read", "Skill",
+                     "Glob", "Grep", "WebFetch"], workdir, model, timeout=300)
+    answers = parse_answers(final_text(events))
+    if not answers:
+        # The judge occasionally replies with prose and no JSON (r7-list, 2026-11-16). One
+        # retry; a second miss leaves every answer "unclear", which is never a pass.
+        events = claude([prompt, "--disallowedTools", "Bash", "Write", "Edit", "Read", "Skill",
+                         "Glob", "Grep", "WebFetch"], workdir, model, timeout=300)
+        answers = parse_answers(final_text(events))
+    results = []
+    for q in case["judge"]:
+        a = answers.get(q["id"], {"answer": "unclear", "evidence": "(judge gave no answer)"})
+        results.append((q, a))
+    return results
+
+
+def make_workdir(case):
+    """A fresh temp copy of the sample project, with the skill and sandbox settings in."""
+    work = Path(tempfile.mkdtemp(prefix=f"mds-eval-{case['id']}-"))
+    shutil.copytree(HERE / "project", work, dirs_exist_ok=True)
+    (work / ".claude" / "skills").mkdir(parents=True)
+    # TODO(LAR-502): the run can edit this file; make it read-only and set
+    # allowUnsandboxedCommands false.
+    (work / ".claude" / "settings.json").write_text(json.dumps(sandbox_settings(work), indent=2))
+    (work / ".scratch").mkdir()
+    (work / ".gitignore").write_text(".scratch/\n")
+    # A copy, not a symlink: a link made the real checkout reachable (and, with it added as
+    # a dir, writable) from the run. evals/ and tests/ stay out, so the run can't read the
+    # rubric it is graded by.
+    shutil.copytree(SKILL, work / ".claude" / "skills" / "make-design-system",
+                    ignore=shutil.ignore_patterns("evals", "tests", "__pycache__"))
+    for step in case.get("setup", []):
+        subprocess.run(step, shell=True, cwd=work, check=True,
+                       env={**os.environ, "EVALS": str(HERE)})
+    subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=work, check=True)
+    subprocess.run(["git", "-c", "user.name=eval", "-c", "user.email=eval@localhost",
+                    "commit", "-qm", "baseline"], cwd=work, check=True)
+    return work
+
+
+def run_case(case, model, out):
+    work = make_workdir(case)
+    with open(out / f"{case['id']}.events.jsonl", "w") as log:
+        try:
+            transcript, stop = converse(case, work, model, log)
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
+            return "INCONCLUSIVE", [f"run failed: {exc}"], work
+    (out / f"{case['id']}.transcript.txt").write_text("\n".join(transcript) + "\n")
+
+    notes, failed = [], False
+    if "expect_trigger" in case:
+        # Trigger cases grade one thing: did the first turn load the skill?
+        fired = any(line == "TOOL Skill: make-design-system" for line in transcript)
+        ok = fired == case["expect_trigger"]
+        notes.append(f"{'ok  ' if ok else 'FAIL'} skill {'loaded' if fired else 'not loaded'}"
+                     f" (want {'loaded' if case['expect_trigger'] else 'not loaded'})")
+        return ("PASS" if ok else "FAIL"), notes, work
+    # npx is denied on purpose; any other denial is the harness getting in the way.
+    denied = [d for d in transcript if d.startswith("DENIED ") and "npx" not in d]
+    if denied:
+        notes.append(f"note: harness denied {len(denied)} tool call(s), e.g. {denied[0][7:120]}")
+    if stop:
+        notes.append(stop)
+    check_failed = False
+    for check in case.get("checks", []):
+        proc = subprocess.run(check["run"], shell=True, cwd=work, capture_output=True,
+                              text=True, env={**os.environ, "SKILL": str(SKILL),
+                                              "EVALS": str(HERE)})
+        ok = proc.returncode == check.get("exit", 0)
+        check_failed |= not ok
+        notes.append(f"{'ok  ' if ok else 'FAIL'} {check['label']}"
+                     + ("" if ok else f" (exit {proc.returncode}): "
+                        + (proc.stdout + proc.stderr).strip()[-200:]))
+    for tc in case.get("transcript_checks", []):
+        ok, why = TRANSCRIPT_CHECKS[tc](transcript)
+        failed |= not ok
+        notes.append(f"{'ok  ' if ok else 'FAIL'} {tc}: {why}")
+    # A failed file check after a denial may be the harness's doing (the run couldn't
+    # read or write what it needed), so it can't count against the skill. Judge answers
+    # about what the assistant said don't depend on tool access, so they still count.
+    if check_failed and denied:
+        stop = stop or "file checks failed after harness denials"
+    else:
+        failed |= check_failed
+    for q, a in judge(case, transcript, JUDGE_MODEL, work):
+        ok = a.get("answer") == q["expect"]
+        unclear = a.get("answer") == "unclear"
+        failed |= not ok and not unclear
+        tag = "ok  " if ok else ("??  " if unclear else "FAIL")
+        notes.append(f"{tag} {q['id']}: {a.get('answer')} (want {q['expect']}) "
+                     f"— {a.get('evidence', '')[:160]!r}")
+        if unclear:
+            stop = stop or "judge could not decide"
+
+    if failed:
+        return "FAIL", notes, work
+    return ("INCONCLUSIVE" if stop else "PASS"), notes, work
+
+
+# Hand-written transcripts for the scripted checks, run by `--self-test` (and so by
+# tests/run, with no model). Each is (check, transcript lines, expected ok). The report
+# shapes come from real runs; the false-pass caveats ("handled", "rerouted") are the
+# substrings an earlier version of the three-line check let through (PR #7 review).
+_REPORT = ["ASSISTANT: Adapted from: notion + linear.app", "Changed: accent to #2F6B4F",
+           "File: DESIGN.md"]
+_HANDOFF = ["", "To hand it to Claude Design, either:", "- upload it as a new design system",
+            "Run the linter too?"]
+SELF_TESTS = [
+    ("three_line_report", _REPORT + _HANDOFF, True),
+    ("three_line_report", _REPORT, True),
+    ("three_line_report", _REPORT + ["", "Run Google's linter on it?"], True),
+    ("three_line_report", _REPORT + ["Both checks pass."] + _HANDOFF, False),
+    ("three_line_report", _REPORT + ["I handled dark-mode contrast by lifting the ink."]
+     + _HANDOFF, False),
+    ("three_line_report", _REPORT + ["The grid was rerouted to 12 columns."] + _HANDOFF, False),
+    ("three_line_report", ["ASSISTANT: ```text"] + [l.replace("ASSISTANT: ", "") for l in _REPORT]
+     + ["```"] + _HANDOFF, False),
+    ("three_line_report", ["ASSISTANT: Done. Here's what I did:"] + _HANDOFF, False),
+    ("no_shortlist", ["ASSISTANT: https://getdesign.md/notion/design-md"], True),
+    ("no_shortlist", ["ASSISTANT: https://getdesign.md/notion/design-md and",
+                      "https://getdesign.md/stripe/design-md"], False),
+]
+
+
+def self_test():
+    bad = 0
+    for i, (name, transcript, want) in enumerate(SELF_TESTS):
+        ok, why = TRANSCRIPT_CHECKS[name](transcript)
+        if ok != want:
+            bad += 1
+            print(f"  FAIL  self-test {i} {name}: got {ok}, want {want} ({why})")
+    print(f"{len(SELF_TESTS) - bad}/{len(SELF_TESTS)} scripted-check self-tests behaved")
+    return bad == 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--self-test", action="store_true",
+                    help="check the scripted transcript checks against fixed cases; no model")
+    ap.add_argument("--model", default="sonnet")
+    ap.add_argument("--judge-model", default="opus")
+    ap.add_argument("--out", default=None)
+    ap.add_argument("cases", nargs="*")
+    args = ap.parse_args()
+    if args.self_test:
+        sys.exit(0 if self_test() else 1)
+    global JUDGE_MODEL
+    JUDGE_MODEL = args.judge_model
+
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    out = Path(args.out or Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+               / "make-design-system-evals" / f"{stamp}-{args.model}")
+    out.mkdir(parents=True, exist_ok=True)
+
+    cases = [json.loads(p.read_text()) for p in sorted((HERE / "cases").glob("*.json"))]
+    if args.cases:
+        cases = [c for c in cases if c["id"] in args.cases]
+    if not cases:
+        sys.exit("no matching cases")
+
+    # Verdicts are saved beside the transcripts, not only printed: without them a run can't
+    # be audited later from its folder. Rewritten after every case so an interrupted run
+    # still keeps what it graded.
+    tally = {"PASS": 0, "FAIL": 0, "INCONCLUSIVE": 0}
+    results = []
+    for case in cases:
+        print(f"{case['id']} ({case.get('plan', '')}): {case['title']}", flush=True)
+        verdict, notes, work = run_case(case, args.model, out)
+        tally[verdict] += 1
+        print(f"  {verdict}")
+        for n in notes:
+            print(f"    {n}")
+        print(f"    workdir: {work}", flush=True)
+        results.append({"id": case["id"], "plan": case.get("plan", ""), "title": case["title"],
+                        "verdict": verdict, "notes": notes, "workdir": str(work)})
+        (out / "results.json").write_text(json.dumps(
+            {"model": args.model, "judge_model": JUDGE_MODEL, "tally": tally,
+             "cases": results}, indent=2) + "\n")
+
+    print(f"\n{tally['PASS']} pass, {tally['FAIL']} fail, {tally['INCONCLUSIVE']} inconclusive"
+          f" ({args.model}). Transcripts: {out}")
+    sys.exit(0 if tally["FAIL"] == 0 and tally["INCONCLUSIVE"] == 0 else 1)
+
+
+if __name__ == "__main__":
+    main()
