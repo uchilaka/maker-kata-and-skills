@@ -21,6 +21,7 @@
 # Every case ends PASS, FAIL or INCONCLUSIVE. Inconclusive means the scripted user lost
 # the thread (a question no reply rule matched, or the turn limit), and is never a pass.
 #
+# TODO(LAR-502): it's 14 cases now.
 # Costs real model time: about 8 cases of 2-4 turns. Use sonnet while developing and opus
 # once before merging.
 
@@ -50,6 +51,7 @@ SKILL = HERE.parent
 #
 # WebFetch is denied because it is not a Bash command, so the sandbox's network rule does
 # not cover it. npx stays denied so the Google linter offer can never run (it executes
+# TODO(LAR-502): a denial voids a case only when a file check also fails; fix wording.
 # third-party code). A run that tries to leave the sandbox needs a permission prompt that
 # -p can't answer, which shows up as a denial and makes the case INCONCLUSIVE.
 DENIED = ["Bash(npx:*)", "Bash(rm:*)", "Bash(git push:*)", "Bash(sudo:*)", "WebFetch"]
@@ -87,6 +89,8 @@ def claude(args, cwd, model, timeout=900):
     """
     tmp_base = f"/tmp/claude-{os.getuid()}"
     scratch = Path(cwd) / ".scratch"
+    # TODO(LAR-502): allowlist the env; deny reads of ~/.ssh, ~/.aws, ~/.config and
+    # ~/.claude, ~/.netrc.
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
     env["SCRATCH"] = str(scratch)
     cmd = ["claude", "-p", *args, "--model", model, "--setting-sources", "project",
@@ -147,6 +151,8 @@ def isolated_from_user_config(events):
         if e.get("type") == "system" and e.get("subtype") == "init":
             if set(e.get("memory_paths") or {}) - {"auto"}:
                 return False
+            # TODO(LAR-502): machine-specific; check the skill list holds only
+            # make-design-system and the built-ins.
             # pr-review is a user skill; seeing it means user settings loaded.
             return "pr-review" not in (e.get("skills") or [])
     return False
@@ -276,6 +282,7 @@ def judge(case, transcript, model, workdir):
         return []
     prompt = JUDGE_PROMPT.format(questions=questions, transcript="\n".join(transcript))
     # The judge needs no tools: everything it grades is in the prompt.
+    # TODO(LAR-502): give the judge no tools (Agent, NotebookEdit, WebSearch still pass).
     events = claude([prompt, "--disallowedTools", "Bash", "Write", "Edit", "Read", "Skill",
                      "Glob", "Grep", "WebFetch"], workdir, model, timeout=300)
     answers = parse_answers(final_text(events))
@@ -297,6 +304,8 @@ def make_workdir(case):
     work = Path(tempfile.mkdtemp(prefix=f"mds-eval-{case['id']}-"))
     shutil.copytree(HERE / "project", work, dirs_exist_ok=True)
     (work / ".claude" / "skills").mkdir(parents=True)
+    # TODO(LAR-502): the run can edit this file; make it read-only and set
+    # allowUnsandboxedCommands false.
     (work / ".claude" / "settings.json").write_text(json.dumps(sandbox_settings(work), indent=2))
     (work / ".scratch").mkdir()
     (work / ".gitignore").write_text(".scratch/\n")
