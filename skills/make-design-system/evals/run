@@ -229,7 +229,7 @@ def assistant_messages(transcript):
     return ["\n".join(m) for m in msgs]
 
 
-HANDOFF_START = re.compile(r"Claude Design|claude\.ai/design|\blinter\b", re.I)
+HANDOFF_START = re.compile(r"\bArtifacts?\b|Claude Design|claude\.ai/design|\blinter\b", re.I)
 
 
 def check_three_line_report(transcript):
@@ -237,9 +237,10 @@ def check_three_line_report(transcript):
 
     Scripted rather than judged: a model judge graded the follow-up message instead of
     the report, twice (2026-11-16). The first non-blank line after the third must open
-    the hand-off (every real run's names Claude Design) or the linter offer; anything
-    from there on is exempt. An earlier version exempted any later line containing a
-    hand-off word as a substring, so "I handled the contrast..." passed as hand-off.
+    the hand-off (an Artifact route, or Claude Design until its 2026-12-14 cutoff) or
+    the linter offer; anything from there on is exempt. An earlier version exempted any
+    later line containing a hand-off word as a substring, so "I handled the contrast..."
+    passed as hand-off.
     """
     reports = [m for m in assistant_messages(transcript) if "Adapted from:" in m]
     if not reports:
@@ -395,6 +396,8 @@ SELF_TESTS = [
     ("three_line_report", _REPORT + _HANDOFF, True),
     ("three_line_report", _REPORT, True),
     ("three_line_report", _REPORT + ["", "Run Google's linter on it?"], True),
+    ("three_line_report", _REPORT + ["", "Make it a Design System Artifact: run quickstart."]
+     + _HANDOFF, True),
     ("three_line_report", _REPORT + ["Both checks pass."] + _HANDOFF, False),
     ("three_line_report", _REPORT + ["I handled dark-mode contrast by lifting the ink."]
      + _HANDOFF, False),
