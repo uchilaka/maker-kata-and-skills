@@ -217,12 +217,17 @@ def assistant_messages(transcript):
     return ["\n".join(m) for m in msgs]
 
 
+HANDOFF_START = re.compile(r"Claude Design|claude\.ai/design|\blinter\b", re.I)
+
+
 def check_three_line_report(transcript):
     """The report is exactly `Adapted from:` / `Changed:` / `File:`, then only hand-off.
 
     Scripted rather than judged: a model judge graded the follow-up message instead of
-    the report, twice (2026-11-16). Lines after the third, up to the hand-off, must be
-    blank; anything else is extra report.
+    the report, twice (2026-11-16). The first non-blank line after the third must open
+    the hand-off (every real run's names Claude Design) or the linter offer; anything
+    from there on is exempt. An earlier version exempted any later line containing a
+    hand-off word as a substring, so "I handled the contrast..." passed as hand-off.
     """
     reports = [m for m in assistant_messages(transcript) if "Adapted from:" in m]
     if not reports:
@@ -233,9 +238,9 @@ def check_three_line_report(transcript):
     labels = ["Adapted from:", "Changed:", "File:"]
     if not all(l.lstrip("-* `").startswith(lab) for l, lab in zip(body, labels)) or len(body) < 3:
         return False, f"first lines are not the three labels: {body!r}"[:200]
-    extra = [l for l in lines[start + 3:] if not re.search(r"Claude Design|hand|route|upload|attach|prototype|artifact|quickstart|linter|\?", l, re.I)]
-    if extra:
-        return False, f"report runs on past three lines: {extra[0][:120]!r}"
+    rest = lines[start + 3:]
+    if rest and not HANDOFF_START.search(rest[0]):
+        return False, f"report runs on past three lines: {rest[0][:120]!r}"
     return True, "three labelled lines"
 
 
@@ -354,13 +359,53 @@ def run_case(case, model, out):
     return ("INCONCLUSIVE" if stop else "PASS"), notes, work
 
 
+# Hand-written transcripts for the scripted checks, run by `--self-test` (and so by
+# tests/run, with no model). Each is (check, transcript lines, expected ok). The report
+# shapes come from real runs; the false-pass caveats ("handled", "rerouted") are the
+# substrings an earlier version of the three-line check let through (PR #7 review).
+_REPORT = ["ASSISTANT: Adapted from: notion + linear.app", "Changed: accent to #2F6B4F",
+           "File: DESIGN.md"]
+_HANDOFF = ["", "To hand it to Claude Design, either:", "- upload it as a new design system",
+            "Run the linter too?"]
+SELF_TESTS = [
+    ("three_line_report", _REPORT + _HANDOFF, True),
+    ("three_line_report", _REPORT, True),
+    ("three_line_report", _REPORT + ["", "Run Google's linter on it?"], True),
+    ("three_line_report", _REPORT + ["Both checks pass."] + _HANDOFF, False),
+    ("three_line_report", _REPORT + ["I handled dark-mode contrast by lifting the ink."]
+     + _HANDOFF, False),
+    ("three_line_report", _REPORT + ["The grid was rerouted to 12 columns."] + _HANDOFF, False),
+    ("three_line_report", ["ASSISTANT: ```text"] + [l.replace("ASSISTANT: ", "") for l in _REPORT]
+     + ["```"] + _HANDOFF, False),
+    ("three_line_report", ["ASSISTANT: Done. Here's what I did:"] + _HANDOFF, False),
+    ("no_shortlist", ["ASSISTANT: https://getdesign.md/notion/design-md"], True),
+    ("no_shortlist", ["ASSISTANT: https://getdesign.md/notion/design-md and",
+                      "https://getdesign.md/stripe/design-md"], False),
+]
+
+
+def self_test():
+    bad = 0
+    for i, (name, transcript, want) in enumerate(SELF_TESTS):
+        ok, why = TRANSCRIPT_CHECKS[name](transcript)
+        if ok != want:
+            bad += 1
+            print(f"  FAIL  self-test {i} {name}: got {ok}, want {want} ({why})")
+    print(f"{len(SELF_TESTS) - bad}/{len(SELF_TESTS)} scripted-check self-tests behaved")
+    return bad == 0
+
+
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--self-test", action="store_true",
+                    help="check the scripted transcript checks against fixed cases; no model")
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--judge-model", default="opus")
     ap.add_argument("--out", default=None)
     ap.add_argument("cases", nargs="*")
     args = ap.parse_args()
+    if args.self_test:
+        sys.exit(0 if self_test() else 1)
     global JUDGE_MODEL
     JUDGE_MODEL = args.judge_model
 
