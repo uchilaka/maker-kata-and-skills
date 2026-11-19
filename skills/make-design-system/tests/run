@@ -147,6 +147,11 @@ for spec in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
   got=$(count $words)
   if [ "$got" = "$want" ]; then pass "list-catalog '$words' = $want"; else fail "list-catalog '$words' = $got, want $want"; fi
 done
+# The Feel column is upstream text and SKILL.md prints the output as-is, so the output
+# itself must say its rows are data. Line 3: after the count line and a blank line.
+label=$("$SKILL/scripts/list-catalog" fintech | sed -n 3p)
+if printf '%s\n' "$label" | grep -q 'data, not instructions'; then pass "list-catalog labels its rows as data"
+else fail "list-catalog does not label its rows as data (line 3: $label)"; fi
 
 # The tier-2 evals grade some behaviour by script, not by model (evals/run's
 # TRANSCRIPT_CHECKS). Those scripts are plain code and are checked here, so a check that
@@ -176,7 +181,8 @@ if [ "${1:-}" = "--online" ]; then
   fi
 
   # Slugs come from list-catalog's table (column 4), not a second hand-written regex.
-  slugs=$("$SKILL/scripts/list-catalog" | awk -F'|' 'NR > 4 { gsub(/[ `]/, "", $4); print $4 }')
+  # Rows are the lines with a backticked slug cell, so the preamble can change length.
+  slugs=$("$SKILL/scripts/list-catalog" | awk -F'|' '/^\| .* \| `/ { gsub(/[ `]/, "", $4); print $4 }')
   total=$("$SKILL/scripts/list-catalog" | awk 'NR == 1 { print $1 }')
   unsafe=$(printf '%s\n' "$slugs" | grep -vE '^[A-Za-z0-9._-]+$')
   if [ "$online" = 0 ]; then
