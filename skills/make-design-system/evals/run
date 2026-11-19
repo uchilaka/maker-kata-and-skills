@@ -375,7 +375,11 @@ def main():
     if not cases:
         sys.exit("no matching cases")
 
+    # Verdicts are saved beside the transcripts, not only printed: without them a run can't
+    # be audited later from its folder. Rewritten after every case so an interrupted run
+    # still keeps what it graded.
     tally = {"PASS": 0, "FAIL": 0, "INCONCLUSIVE": 0}
+    results = []
     for case in cases:
         print(f"{case['id']} ({case.get('plan', '')}): {case['title']}", flush=True)
         verdict, notes, work = run_case(case, args.model, out)
@@ -384,6 +388,11 @@ def main():
         for n in notes:
             print(f"    {n}")
         print(f"    workdir: {work}", flush=True)
+        results.append({"id": case["id"], "plan": case.get("plan", ""), "title": case["title"],
+                        "verdict": verdict, "notes": notes, "workdir": str(work)})
+        (out / "results.json").write_text(json.dumps(
+            {"model": args.model, "judge_model": JUDGE_MODEL, "tally": tally,
+             "cases": results}, indent=2) + "\n")
 
     print(f"\n{tally['PASS']} pass, {tally['FAIL']} fail, {tally['INCONCLUSIVE']} inconclusive"
           f" ({args.model}). Transcripts: {out}")
