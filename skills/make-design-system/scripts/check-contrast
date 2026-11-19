@@ -21,6 +21,9 @@
 #   - A state variant without its own colour (`table-row-hover`) inherits from the longest
 #     component name it extends (`table-row`).
 #   - `*-disabled` components are reported but never fail: WCAG 1.4.3 exempts inactive UI.
+#   - Colours are hex: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`. Alpha is composited, text
+#     onto its background and a translucent background onto the canvas, so the ratio is
+#     the one that renders. Any other format a pair uses (`rgb()`) is a clean FAIL.
 #
 # Stdlib only, so it runs anywhere the skill does. The front-matter reader handles the
 # shape these files use (two-space keys, one level of nesting), not YAML in general.
@@ -73,15 +76,38 @@ def front_matter(path):
     sys.exit("FAIL front matter never closes")
 
 
-# TODO(LAR-404): rgb()/rgba() palette values crash here, and #RRGGBBAA alpha is ignored.
-def luminance(hex_):
-    h = hex_.lstrip("#")
-    if len(h) == 3:
+HEX = re.compile(r"#(?:[0-9A-Fa-f]{3,4}|[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})")
+
+
+class Unreadable(Exception):
+    """A colour this pair needs that can't be turned into an opaque RGB value."""
+
+
+def rgba(hex_):
+    """`#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` as (r, g, b, a) in 0..1, else None."""
+    if not HEX.fullmatch(hex_):
+        return None
+    h = hex_[1:]
+    if len(h) <= 4:
         h = "".join(c * 2 for c in h)
-    def channel(c):
-        c = int(c, 16) / 255
-        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
-    r, g, b = (channel(h[i:i + 2]) for i in (0, 2, 4))
+    h = h.ljust(8, "f")  # no alpha digits means opaque
+    return tuple(int(h[i:i + 2], 16) / 255 for i in (0, 2, 4, 6))
+
+
+def over(fg, bg):
+    """fg alpha-composited onto an opaque bg: the colour that actually renders.
+
+    WCAG contrast is defined on rendered colours. Reading only the first six digits
+    checked `#00000010` (black at 6%) as solid black, so it passed on white at 21:1.
+    """
+    a = fg[3]
+    return tuple(f * a + b * (1 - a) for f, b in zip(fg[:3], bg[:3])) + (1.0,)
+
+
+def luminance(c):
+    def channel(v):
+        return v / 12.92 if v <= 0.03928 else ((v + 0.055) / 1.055) ** 2.4
+    r, g, b = (channel(v) for v in c[:3])
     return 0.2126 * r + 0.7152 * g + 0.0722 * b
 
 
@@ -118,9 +144,6 @@ def color_key(ref):
     return m.group(1) if m else None
 
 
-HEX = re.compile(r"#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})")
-
-
 def colour(ref):
     """A colour reference as ("token", key) or ("hex", value), or None if it is neither."""
     key = color_key(ref)
@@ -137,6 +160,44 @@ def label(c):
 
 def value(c, palette):
     return palette.get(c[1]) if c[0] == "token" else c[1]
+
+
+def read(c, palette):
+    """The colour as (r, g, b, a), or Unreadable with the line to print.
+
+    Only values a pair uses are read, never the whole palette: upstream files ship
+    `rgba()` tokens for borders and overlays, and failing on one no component puts text
+    on would be a false failure. An `rgb()` value used to reach the hex parser and end
+    the run with a ValueError traceback.
+    """
+    v = value(c, palette)
+    if v is None:
+        raise Unreadable(f"colors.{c[1]} is not defined")
+    parsed = rgba(v)
+    if parsed is None:
+        raise Unreadable(f"colors.{c[1]} is not a hex colour: {v!r}")
+    return parsed
+
+
+def backdrops(bg, palette, name, light):
+    """[(label, opaque colour)] the text can land on, for one background.
+
+    A translucent background is composited onto the canvases a `transparent` one would
+    sit on, so the warn-on-some-canvases rule covers it too. A translucent canvas has
+    nothing defined behind it, so it can't be checked at all.
+    """
+    def opaque_canvas(k):
+        c = read(("token", k), palette)
+        if c[3] < 1:
+            raise Unreadable(f"colors.{k} is translucent, so nothing says what is behind it")
+        return c
+
+    if bg[0] == "token" and (bg[1] == "canvas" or bg[1].startswith("canvas-")):
+        return [(label(bg), opaque_canvas(bg[1]))]
+    b = read(bg, palette)
+    if b[3] == 1:
+        return [(label(bg), b)]
+    return [(f"{label(bg)} over {k}", over(b, opaque_canvas(k))) for k in canvases(light, name)]
 
 
 def main(path):
@@ -178,13 +239,15 @@ def main(path):
             fail = 1
             continue
         for mode, palette in modes.items():
-            undefined = [label(c) for c in [text, *bgs] if value(c, palette) is None]
-            if undefined:
-                print(f"FAIL {name} ({mode}): colors.{undefined[0]} is not defined")
+            try:
+                fg = read(text, palette)
+                under = [d for bg in bgs for d in backdrops(bg, palette, name, light)]
+            except Unreadable as e:
+                print(f"FAIL {name} ({mode}): {e}")
                 fail = 1
                 continue
             checked += 1
-            results = [(label(bg), ratio(value(text, palette), value(bg, palette))) for bg in bgs]
+            results = [(bg, ratio(over(fg, c), c)) for bg, c in under]
             low = [(bg, r) for bg, r in results if r < MIN]
             if not low:
                 continue
