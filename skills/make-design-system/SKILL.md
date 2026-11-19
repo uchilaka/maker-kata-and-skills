@@ -137,7 +137,8 @@ and run it only on a yes.**
   started with `quickstart` intent `other`, and this `DESIGN.md` as its source material.
 
 Report in **exactly three lines**, then the hand-off routes and at most one question (the
-linter offer, if not yet made):
+linter offer, if not yet made). Write the three lines as plain text, not inside a code
+block; the fence below only marks the template:
 
 ```text
 Adapted from: <source(s)>
