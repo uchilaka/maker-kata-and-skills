@@ -20,10 +20,12 @@
 #     the tokens alone which one a `transparent` component lands on.
 #   - A state variant without its own colour (`table-row-hover`) inherits from the longest
 #     component name it extends (`table-row`).
-#   - `*-disabled` components are reported but never fail: WCAG 1.4.3 exempts inactive UI.
+#   - `*-disabled` components and their state variants (`*-disabled-hover`) are reported
+#     but never fail: WCAG 1.4.3 exempts inactive UI.
 #
 # Stdlib only, so it runs anywhere the skill does. The front-matter reader handles the
-# shape these files use (two-space keys, one level of nesting), not YAML in general.
+# shape these files use (groups, keys, one level of properties, at any consistent indent;
+# bare or quoted keys), not YAML in general. Deeper nesting is warned about, not read.
 
 import re
 import sys
@@ -45,31 +47,48 @@ def scalar(raw):
     return re.split(r"\s+#", raw, maxsplit=1)[0].strip()
 
 
-# TODO(LAR-407): quoted keys, empty colour values, deeper nesting and *-disabled-hover
-# are not handled.
+# A key, bare or quoted (`"button-ghost":`), then its raw value.
+KEY_LINE = re.compile(r"""^( *)(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_-]+)):\s*(.*)$""")
+
+
 def front_matter(path):
+    """Three levels: groups, their keys, and those keys' properties.
+
+    Depth is relative: the file's first indent is one level, so a file indented four
+    spaces reads the same as one indented two. Anything nested deeper is warned about
+    rather than dropped, since a silently skipped `textColor` would let a failing pair
+    report ok.
+    """
     with open(path, encoding="utf-8") as f:
         lines = f.read().split("\n")
     if lines[0] != "---":
         sys.exit("FAIL no front matter — is the --- block first?")
-    groups, group, key = {}, None, None
-    for line in lines[1:]:
+    groups, group, key, unit = {}, None, None, None
+    for number, line in enumerate(lines[1:], start=2):
         if line == "---":
             return groups
         if not line.strip() or line.lstrip().startswith("#"):
             continue
-        m = re.match(r"^( *)([A-Za-z0-9_-]+):\s*(.*)$", line)
+        m = KEY_LINE.match(line)
         if not m:
             continue
-        indent, name, value = len(m.group(1)), m.group(2), scalar(m.group(3))
+        indent = len(m.group(1))
+        name = next(g for g in m.group(2, 3, 4) if g is not None)
+        raw = m.group(5).strip()
+        if indent and unit is None:
+            unit = indent
         if indent == 0:
             group, key = groups.setdefault(name, {}), None
-        elif indent == 2 and group is not None:
+        elif indent == unit and group is not None:
             key = name
-            # An empty value opens a nested block (a component's properties).
-            group[key] = value if value else {}
-        elif indent == 4 and group is not None and isinstance(group.get(key), dict):
-            group[key][name] = value
+            # Only an absent value opens a nested block (a component's properties). A
+            # quoted `""` is an empty string, not a block.
+            group[key] = scalar(raw) if raw else {}
+        elif indent == 2 * unit and group is not None and isinstance(group.get(key), dict):
+            group[key][name] = scalar(raw)
+        elif indent > 2 * unit or indent % unit:
+            print(f"warn front matter line {number}: {name} is nested deeper than this "
+                  "reader handles, and was not read")
     sys.exit("FAIL front matter never closes")
 
 
@@ -136,7 +155,16 @@ def label(c):
 
 
 def value(c, palette):
-    return palette.get(c[1]) if c[0] == "token" else c[1]
+    """The colour's value, or None when it has none. `foo: ""` and a bare `foo:` both
+    count as none: either one used to reach luminance() and crash."""
+    v = palette.get(c[1]) if c[0] == "token" else c[1]
+    return v if isinstance(v, str) and v else None
+
+
+def is_disabled(name):
+    """A whole-segment match, so `button-disabled-hover` is exempt along with
+    `button-disabled`: the variant inherits the same inactive text colour."""
+    return "-disabled-" in f"{name}-"
 
 
 def main(path):
@@ -180,7 +208,9 @@ def main(path):
         for mode, palette in modes.items():
             undefined = [label(c) for c in [text, *bgs] if value(c, palette) is None]
             if undefined:
-                print(f"FAIL {name} ({mode}): colors.{undefined[0]} is not defined")
+                k = undefined[0]
+                why = "has no value" if k in palette else "is not defined"
+                print(f"FAIL {name} ({mode}): colors.{k} {why}")
                 fail = 1
                 continue
             checked += 1
@@ -189,7 +219,7 @@ def main(path):
             if not low:
                 continue
             pair = ", ".join(f"{label(text)} on {bg} = {r:.2f}:1" for bg, r in low)
-            if name.endswith("-disabled"):
+            if is_disabled(name):
                 print(f"info {name} ({mode}): {pair}, exempt as disabled")
             elif len(low) < len(results):
                 print(f"warn {name} ({mode}): {pair}; passes on the other canvas")

@@ -139,6 +139,82 @@ printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  label:\n    textCol
 refuse "a reference to an undefined colour fails" "colors.ghost is not defined" \
   "$SKILL/scripts/check-contrast" "$TMP/undefined.md"
 
+echo "check-contrast front-matter edge cases (hand-written cases)"
+# LAR-407. No saved output hits these, so each is pinned by hand.
+cat > "$TMP/quoted-key.md" <<'CASE'
+---
+colors:
+  canvas: "#FFFFFF"
+  ink: "#111111"
+  pale: "#EEEEEE"
+components:
+  button:
+    textColor: "{colors.ink}"
+  "button-ghost":
+    textColor: "{colors.pale}"
+---
+CASE
+# Unread, the quoted key's textColor overwrote `button`'s, and the failure was reported
+# under the wrong component.
+refuse "a quoted component key keeps its own name" "button-ghost (light): pale on canvas" \
+  "$SKILL/scripts/check-contrast" "$TMP/quoted-key.md"
+
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\n  foo: ""\ncomponents:\n  label:\n    textColor: "{colors.foo}"\n---\n' > "$TMP/empty-colour.md"
+refuse "an empty colour value fails cleanly, not with a traceback" "colors.foo has no value" \
+  "$SKILL/scripts/check-contrast" "$TMP/empty-colour.md"
+printf -- '---\ncolors:\n  canvas: "#FFFFFF"\n  foo:\ncomponents:\n  label:\n    textColor: "{colors.foo}"\n---\n' > "$TMP/bare-colour.md"
+refuse "a colour key with no value fails cleanly, not with a traceback" "colors.foo has no value" \
+  "$SKILL/scripts/check-contrast" "$TMP/bare-colour.md"
+
+cat > "$TMP/disabled-hover.md" <<'CASE'
+---
+colors:
+  canvas: "#FFFFFF"
+  pale: "#EEEEEE"
+components:
+  button-disabled:
+    textColor: "{colors.pale}"
+  button-disabled-hover:
+    backgroundColor: "{colors.canvas}"
+---
+CASE
+out=$("$SKILL/scripts/check-contrast" "$TMP/disabled-hover.md" 2>&1)
+if [ $? -eq 0 ] && printf '%s\n' "$out" | grep -q '^info button-disabled-hover (light): .*exempt as disabled'; then
+  pass "a state variant of a -disabled component is exempt too"
+else fail "button-disabled-hover was not exempt as disabled" "$out"; fi
+
+# Indented four spaces throughout. With fixed 2/4 depths every key read as a property,
+# nothing was checked, and the run failed for "no pairs" instead of on the real pair.
+cat > "$TMP/four-space.md" <<'CASE'
+---
+colors:
+    canvas: "#FFFFFF"
+    pale: "#EEEEEE"
+components:
+    label:
+        textColor: "{colors.pale}"
+---
+CASE
+refuse "a four-space-indented file is read at its own depth" "label (light): pale on canvas" \
+  "$SKILL/scripts/check-contrast" "$TMP/four-space.md"
+
+cat > "$TMP/too-deep.md" <<'CASE'
+---
+colors:
+  canvas: "#FFFFFF"
+  ink: "#111111"
+components:
+  button:
+    textColor: "{colors.ink}"
+    states:
+      hover: "{colors.canvas}"
+---
+CASE
+out=$("$SKILL/scripts/check-contrast" "$TMP/too-deep.md" 2>&1)
+if [ $? -eq 0 ] && printf '%s\n' "$out" | grep -q '^warn front matter line 9: hover is nested deeper'; then
+  pass "a key nested deeper than the reader handles is reported, not dropped"
+else fail "a too-deep key was dropped in silence" "$out"; fi
+
 echo "list-catalog"
 count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
 for spec in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
