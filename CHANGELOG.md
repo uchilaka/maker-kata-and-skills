@@ -45,6 +45,11 @@ version, not what the diff did.
   piped `launchctl list` into `grep -q` under `pipefail`, so the producer died of SIGPIPE
   and the pipeline returned 141 rather than grep's 0. `bin/doctor` can now exit 0 on a
   correctly installed machine, which was not previously reachable.
+- `/make-design-system`'s `check-contrast` warns less when nothing is wrong. A
+  transparent `-on-dark` / `-on-light` component in a file with no `canvas-dark` /
+  `canvas-light` is now checked on the darkest / lightest canvas instead of every canvas,
+  and a `canvas-*` key named for a non-surface colour (`canvas-border`) is no longer
+  tried as a background.
 
 ### Known gaps
 
