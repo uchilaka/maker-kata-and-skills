@@ -8,9 +8,11 @@
 #
 #   - Good fixtures: real outputs saved from the 2026-09/10 validation runs (R1, R3, R4,
 #     R5a, R5b) must pass `check-design-md` and `check-contrast`.
-#   - Known-bad mutants: R1 is broken one way per check, on purpose, and that check must
-#     FAIL for the stated reason. A harness that only ever says "pass" proves nothing;
-#     these prove it can say "fail". Hand-written cases cover what no saved output does.
+#   - Known-bad mutants: a fixture is broken one way per check, on purpose, and that
+#     check must FAIL for the stated reason. A harness that only ever says "pass" proves
+#     nothing; these prove it can say "fail". Most mutate R1; another fixture is mutated
+#     only where it reaches a rule R1 can't (R5b's several canvases). Hand-written cases
+#     cover what no saved output does.
 #   - `list-catalog` returns fixed counts against the vendored catalog.
 #   - --online adds upstream-drift probes. They hit the network, and a failure there
 #     means upstream moved, not that the skill broke, so they are opt-in.
@@ -68,7 +70,8 @@ echo "good fixtures"
 # 60 to 58 and nothing noticed. A change that legitimately alters a count updates it here.
 #
 # Two rules are covered only by this data, so keep it: R1's disabled button (3.42:1 in
-# dark mode) is the -disabled exemption, and R5b's two canvases are the multi-canvas warn.
+# dark mode) is the -disabled exemption, and R5b's three canvases feed the multi-canvas
+# checks after the R1 mutants.
 while IFS=: read -r name pairs brands; do
   # shellcheck disable=SC2086 # brands is a deliberate word list
   expect 0 "$name check-design-md" "$SKILL/scripts/check-design-md" "$FIX/$name.DESIGN.md" $brands
@@ -85,24 +88,43 @@ R5b:28:Ferrari
 EOF
 
 echo "known-bad mutants (each must fail)"
-# TODO(LAR-408): only R1 is mutated; add mutants of other fixtures where R1 can't reach.
-# mutant <name> <sed expression>: R1 with one deliberate break
+# mutant <fixture> <name> <sed expression>: the fixture with one deliberate break
 mutant() {
-  sed "$2" "$FIX/R1.DESIGN.md" > "$TMP/$1.md" || { fail "mutant $1: sed rejected the expression"; return 1; }
-  cmp -s "$FIX/R1.DESIGN.md" "$TMP/$1.md" && { fail "mutant $1 did not change the fixture"; return 1; }
+  local src="$FIX/$1.DESIGN.md" out="$TMP/$2.md"
+  sed "$3" "$src" > "$out" || { fail "mutant $2: sed rejected the expression"; return 1; }
+  cmp -s "$src" "$out" && { fail "mutant $2 did not change the fixture"; return 1; }
   return 0
 }
-mutant dangling-ref 's/^- \*\*Moss\*\* ({colors\.primary})/- **Moss** ({colors.not-a-token})/' \
+mutant R1 dangling-ref 's/^- \*\*Moss\*\* ({colors\.primary})/- **Moss** ({colors.not-a-token})/' \
   && refuse "dangling {colors.*} reference" "colors.not-a-token" "$SKILL/scripts/check-design-md" "$TMP/dangling-ref.md"
-mutant brand-survives '/^## Overview$/a\
+mutant R1 brand-survives '/^## Overview$/a\
 Inspired by Linear.' \
   && refuse "surviving source brand" 'source brand "Linear" still present' "$SKILL/scripts/check-design-md" "$TMP/brand-survives.md" Linear
-mutant missing-section 's/^## Shapes$/## Geometry/' \
+mutant R1 missing-section 's/^## Shapes$/## Geometry/' \
   && refuse "missing section" "missing section: ## Shapes" "$SKILL/scripts/check-design-md" "$TMP/missing-section.md"
-mutant low-contrast 's/^  on-primary: "#FFFFFF"$/  on-primary: "#5A8C74"/' \
+mutant R1 low-contrast 's/^  on-primary: "#FFFFFF"$/  on-primary: "#5A8C74"/' \
   && refuse "text on accent below 4.5:1" "on-primary on primary" "$SKILL/scripts/check-contrast" "$TMP/low-contrast.md"
-mutant dark-parity '/^  overlay: "#000000"$/d' \
+mutant R1 dark-parity '/^  overlay: "#000000"$/d' \
   && refuse "colors-dark missing a key" "missing in colors-dark: overlay" "$SKILL/scripts/check-contrast" "$TMP/dark-parity.md"
+
+# R1 has one canvas, so a transparent component there has one candidate background and
+# check-contrast's split between FAIL (fails on every canvas) and warn (fails on some)
+# never comes up. R5b has three. Without the two checks below, either half of that split
+# could regress with every other check still passing: a FAIL on all three canvases
+# downgraded to a warn (exit 0), or the warn dropped in silence.
+#
+# The mutant points lifer-cell at a grey that fails on all three canvases (3.93, 2.88 and
+# 4.48:1). `muted` is used by no component, so lifer-cell is the only pair it changes. The
+# pattern names `muted`, so it only matches if both sed edits applied.
+mutant R5b every-canvas 's/^  muted: "#858585"$/  muted: "#777777"/
+/^  lifer-cell:$/,/textColor/s/{colors\.primary}/{colors.muted}/' \
+  && refuse "R5b: text failing on every canvas fails, not warns" "FAIL lifer-cell (light): muted on canvas" \
+    "$SKILL/scripts/check-contrast" "$TMP/every-canvas.md"
+# Unmutated, lifer-cell fails on the two dark canvases and passes on canvas-light.
+out=$("$SKILL/scripts/check-contrast" "$FIX/R5b.DESIGN.md" 2>&1); got=$?
+if [ "$got" -eq 0 ] && printf '%s\n' "$out" | grep -qF 'warn lifer-cell (light): primary on canvas'; then
+  pass "R5b: text failing on some canvases warns and exits 0"
+else fail "R5b: text failing on some canvases did not warn with exit 0 (exit $got)" "$out"; fi
 
 echo "check-contrast canvas pick (hand-written cases)"
 # No saved output defines both canvas-light and canvas-dark, so the exact-pick rule had
