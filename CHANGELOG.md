@@ -45,6 +45,11 @@ version, not what the diff did.
   piped `launchctl list` into `grep -q` under `pipefail`, so the producer died of SIGPIPE
   and the pipeline returned 141 rather than grep's 0. `bin/doctor` can now exit 0 on a
   correctly installed machine, which was not previously reachable.
+- `/make-design-system`'s `check-contrast` no longer passes translucent colours as if
+  they were opaque: `#rrggbbaa` / `#rgba` alpha is composited onto the background (and a
+  translucent background onto the canvas) before the ratio is taken, so `#00000010` text
+  on white now fails at 1.15:1 instead of passing at 21:1. An `rgb()` value a component
+  uses is now a one-line `FAIL colors.x is not a hex colour` rather than a traceback.
 
 ### Known gaps
 

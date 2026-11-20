@@ -134,7 +134,8 @@ reference and say it came from upstream, so nobody hunts for a bug you didn't wr
 colour mode, and that a `colors-dark` group mirrors `colors` key for key. A palette whose
 swatches all pass can still pair two of them badly on one component. A `warn` means a
 component with no background, or a `transparent` one, fails on one of several canvases:
-say which one it sits on.
+say which one it sits on. Colours a pair uses must be hex; alpha (`#rrggbbaa`) is
+composited before the ratio is taken, and anything else (`rgb()`) fails by name.
 
 Google's schema linter (`npx @google/design.md lint DESIGN.md`, named in upstream's
 Iteration Guides) validates more, but it downloads and runs third-party code. **Offer it,

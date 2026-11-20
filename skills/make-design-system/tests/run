@@ -139,6 +139,47 @@ printf -- '---\ncolors:\n  canvas: "#FFFFFF"\ncomponents:\n  label:\n    textCol
 refuse "a reference to an undefined colour fails" "colors.ghost is not defined" \
   "$SKILL/scripts/check-contrast" "$TMP/undefined.md"
 
+echo "check-contrast colour formats (hand-written cases)"
+# LAR-404: rgb() used to crash with a traceback, and #RRGGBBAA alpha was dropped, so
+# translucent text passed as if opaque. refuse() needs the clean message, not exit 1 alone.
+format_case() { # format_case <name> <text value> <background value>
+  cat > "$TMP/$1.md" <<CASE
+---
+colors:
+  canvas: "#FFFFFF"
+  text: "$2"
+  fill: "$3"
+components:
+  label:
+    textColor: "{colors.text}"
+    backgroundColor: "{colors.fill}"
+---
+CASE
+}
+format_case rgb-text "rgb(0, 0, 0)" "#FFFFFF"
+refuse "an rgb() palette value fails cleanly" "colors.text is not a hex colour" \
+  "$SKILL/scripts/check-contrast" "$TMP/rgb-text.md"
+out=$("$SKILL/scripts/check-contrast" "$TMP/rgb-text.md" 2>&1)
+if printf '%s\n' "$out" | grep -q Traceback; then fail "an rgb() palette value still raises a traceback" "$out"
+else pass "an rgb() palette value raises no traceback"; fi
+format_case alpha-text "#00000010" "#FFFFFF"
+refuse "#RRGGBBAA text alpha is composited, not ignored" "text on fill = 1.1" \
+  "$SKILL/scripts/check-contrast" "$TMP/alpha-text.md"
+format_case alpha-short "#0001" "#FFF"
+refuse "#RGBA shorthand alpha is composited too" "text on fill = 1.1" \
+  "$SKILL/scripts/check-contrast" "$TMP/alpha-short.md"
+format_case opaque-alpha "#000000FF" "#FFFFFF"
+out=$("$SKILL/scripts/check-contrast" "$TMP/opaque-alpha.md" 2>&1)
+if [ $? -eq 0 ]; then pass "#RRGGBBFF reads as opaque"; else fail "#RRGGBBFF did not read as opaque" "$out"; fi
+# A translucent background sits on the canvas. Black at 50% over white is mid-grey, which
+# white text cannot read on; checked as opaque black it would pass at 21:1.
+format_case alpha-fill "#FFFFFF" "#00000080"
+refuse "a translucent background is composited over the canvas" "text on fill over canvas" \
+  "$SKILL/scripts/check-contrast" "$TMP/alpha-fill.md"
+printf -- '---\ncolors:\n  canvas: "#FFFFFF80"\n  text: "#000000"\ncomponents:\n  label:\n    textColor: "{colors.text}"\n---\n' > "$TMP/alpha-canvas.md"
+refuse "a translucent canvas fails cleanly" "colors.canvas is translucent" \
+  "$SKILL/scripts/check-contrast" "$TMP/alpha-canvas.md"
+
 echo "list-catalog"
 count() { "$SKILL/scripts/list-catalog" "$@" | head -1 | cut -d' ' -f1; }
 for spec in "68:" "24:dark minimal" "7:fintech" "0:zzz-no-such-feel"; do
