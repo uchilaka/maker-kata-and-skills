@@ -229,7 +229,11 @@ def assistant_messages(transcript):
     return ["\n".join(m) for m in msgs]
 
 
-HANDOFF_START = re.compile(r"\bArtifacts?\b|Claude Design|claude\.ai/design|\blinter\b", re.I)
+# Phrases that open a hand-off, not words that may appear in one: a bare "artifact"
+# also matches a caveat about a stray file (r4, 2026-11-19).
+HANDOFF_START = re.compile(
+    r"Design System Artifact|\bhand(?:-off\b|\s+off\b|\s+(?:it|this)\b)"
+    r"|Claude Design|claude\.ai/design|\blinter\b", re.I)
 
 
 def check_three_line_report(transcript):
@@ -398,6 +402,10 @@ SELF_TESTS = [
     ("three_line_report", _REPORT + ["", "Run Google's linter on it?"], True),
     ("three_line_report", _REPORT + ["", "Make it a Design System Artifact: run quickstart."]
      + _HANDOFF, True),
+    ("three_line_report", _REPORT + ["", "Hand-off, Artifacts first:", "- **Artifact:** quickstart"],
+     True),
+    ("three_line_report", _REPORT + ["The stray linear.DESIGN.md artifact from the first fetch is"
+     " still in the repo."] + _HANDOFF, False),
     ("three_line_report", _REPORT + ["Both checks pass."] + _HANDOFF, False),
     ("three_line_report", _REPORT + ["I handled dark-mode contrast by lifting the ink."]
      + _HANDOFF, False),
