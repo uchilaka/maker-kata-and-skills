@@ -28,6 +28,19 @@ project. Fed a `DESIGN.md`, it scaffolds the whole starter package in one pass:
 
 ## Handing a DESIGN.md to Claude Design
 
+Claude Design is moving to Artifacts in the Claude app. Its banner (seen 2026-10-10)
+says the current version keeps working until **December 14, 2026**; after that, Options
+A and B below are expected to stop working. Lead with the Artifacts route.
+
+**Artifacts — a Design System Artifact.** The core *Design System* Artifact type holds a
+brand's README, tokens across themes, components with live previews, and assets: the same
+package Claude Design scaffolds. In Claude Code with the Artifact tool, run `quickstart`
+with intent `other` and follow it to the *Design System* type, with this `DESIGN.md` as
+the source material. In the Claude app, ask Claude for a design system made from the
+attached `DESIGN.md`. *The app's exact steps are unverified as of 2026-11-19.*
+
+**Until December 14, 2026 — Claude Design.**
+
 **Option A — start from a design system.** Go to `claude.ai/design/#org`, choose
 **Create new design system**, and upload the `DESIGN.md` under **Add assets** on the
 *Set up your design system* screen.

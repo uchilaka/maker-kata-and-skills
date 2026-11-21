@@ -144,11 +144,11 @@ and run it only on a yes.**
 
 - If `DESIGN.md` already exists, show a summary of it and ask before replacing it. Never
   overwrite without looking.
-- Hand off with the two Claude Design routes from `references/claude-design.md` (upload
-  as a new design system, or attach to a prototype with *"Create a design system from
-  this DESIGN.md"*).
-- In Claude Code with the Artifact tool, a third route: a Design System Artifact type,
-  started with `quickstart` intent `other`, and this `DESIGN.md` as its source material.
+- Hand off with the routes in `references/claude-design.md`, Artifacts first: a
+  *Design System* Artifact made from this `DESIGN.md` (in Claude Code, `quickstart`
+  intent `other`). Then the Claude Design routes, labelled as working only until
+  December 14, 2026 (upload as a new design system, or attach to a prototype with
+  *"Create a design system from this DESIGN.md"*). After that date, drop them.
 
 Report in **exactly three lines**, then the hand-off routes and at most one question (the
 linter offer, if not yet made). Write the three lines as plain text, not inside a code
