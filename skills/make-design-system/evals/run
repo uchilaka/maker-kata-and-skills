@@ -234,6 +234,13 @@ def assistant_messages(transcript):
 HANDOFF_START = re.compile(
     r"Design System Artifact|\bhand(?:-off\b|\s+off\b|\s+(?:it|this)\b)"
     r"|Claude Design|claude\.ai/design|\blinter\b", re.I)
+# A line that is only a heading: `## Next steps` or `**Next steps:**`.
+HEADING_ONLY = re.compile(r"^\s*(?:#{1,6}\s+[^\n]+|\*\*[^*]+\*\*:?)\s*$")
+
+
+def opens_handoff(line):
+    """Match on the text without emphasis: opus writes "*Design System* Artifact"."""
+    return HANDOFF_START.search(re.sub(r"[*_`]", "", line)) is not None
 
 
 def check_three_line_report(transcript):
@@ -256,7 +263,14 @@ def check_three_line_report(transcript):
     if not all(l.lstrip("-* `").startswith(lab) for l, lab in zip(body, labels)) or len(body) < 3:
         return False, f"first lines are not the three labels: {body!r}"[:200]
     rest = lines[start + 3:]
-    if rest and not HANDOFF_START.search(rest[0]):
+    if not rest or opens_handoff(rest[0]):
+        return True, "three labelled lines"
+    # A bare heading ("**Next steps:**", opus 2026-11-21) says nothing by itself, so the
+    # line under it decides. A heading with nothing under it is still extra text.
+    i = 0
+    while i < len(rest) and HEADING_ONLY.match(rest[i]):
+        i += 1
+    if i == 0 or i == len(rest) or not opens_handoff(rest[i]):
         return False, f"report runs on past three lines: {rest[0][:120]!r}"
     return True, "three labelled lines"
 
@@ -406,6 +420,10 @@ SELF_TESTS = [
      True),
     ("three_line_report", _REPORT + ["The stray linear.DESIGN.md artifact from the first fetch is"
      " still in the repo."] + _HANDOFF, False),
+    ("three_line_report", _REPORT + ["", "**Next steps:**", "- **Artifacts (recommended):** make a"
+     " *Design System* Artifact from this `DESIGN.md`."], True),
+    ("three_line_report", _REPORT + ["", "**Notes:**", "Both checks pass."] + _HANDOFF, False),
+    ("three_line_report", _REPORT + ["", "**Next steps:**"], False),
     ("three_line_report", _REPORT + ["Both checks pass."] + _HANDOFF, False),
     ("three_line_report", _REPORT + ["I handled dark-mode contrast by lifting the ink."]
      + _HANDOFF, False),
